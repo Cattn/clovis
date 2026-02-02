@@ -45,8 +45,8 @@ Fetches fresh authentication tokens from Google Flights.
 
 ---
 
-### `GET /flights/search`
-Search for outbound flights between two airports.
+### `GET /flights/search/roundTrip`
+Search for round-trip flights between two airports.
 
 **Query Parameters:**
 
@@ -59,7 +59,7 @@ Search for outbound flights between two airports.
 
 **Example:**
 ```bash
-curl "http://localhost:3000/flights/search?from=PBI&to=LAS&departDate=2026-02-09"
+curl "http://localhost:3000/flights/search/roundTrip?from=PBI&to=LAS&departDate=2026-02-09"
 ```
 
 **Response:**
@@ -123,6 +123,38 @@ curl "http://localhost:3000/flights/cheapest?from=PBI&to=LAS"
     "totalPrice": 198,
     "outbound": { /* FlightResult */ },
     "return": { /* FlightResult */ }
+  }
+}
+```
+---
+
+### `GET /flights/search/oneWay`
+Search for one-way flights between airports.
+
+**Query Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `from` | string | ✅ | - | Origin airport code (e.g., `PBI`) |
+| `to` | string | ✅ | - | Destination airport code (e.g., `LAS`) |
+| `departDate` | string | ❌ | +7 days | Departure date (`YYYY-MM-DD`) |
+
+**Example:**
+```bash
+curl "http://localhost:3000/flights/search/oneWay?from=PBI&to=LAS&departDate=2026-02-09"
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "from": "PBI",
+    "to": "LAS",
+    "departDate": "2026-02-09",
+    "cheapest": { /* FlightResult */ },
+    "totalFlights": 45,
+    "allFlights": [ /* top 20 FlightResults */ ]
   }
 }
 ```

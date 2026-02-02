@@ -6,8 +6,8 @@ import { formatDate } from "../../utils/format";
 
 const getSignal = () => AbortSignal.timeout(10000);
 
-export const searchRoutes = new Elysia({ prefix: "/flights" })
-  .get("/search", async ({ query }) => {
+export const searchRoutes = new Elysia({ prefix: "/flights/search" })
+  .get("/roundTrip", async ({ query }) => {
     const { from, to, departDate, returnDate } = query;
     
     if (!from || !to) {
