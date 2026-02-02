@@ -94,6 +94,41 @@ curl "http://localhost:3000/flights/search?from=PBI&to=LAS&departDate=2026-02-09
 
 ---
 
+### `GET /flights/cheapest`
+Get the cheapest round-trip flight pair automatically.
+
+**Query Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `from` | string | ✅ | - | Origin airport code (e.g., `PBI`) |
+| `to` | string | ✅ | - | Destination airport code (e.g., `LAS`) |
+| `departDate` | string | ❌ | +7 days | Departure date (`YYYY-MM-DD`) |
+| `returnDate` | string | ❌ | +14 days | Return date (`YYYY-MM-DD`) |
+
+**Example:**
+```bash
+curl "http://localhost:3000/flights/cheapest?from=PBI&to=LAS"
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "from": "PBI",
+    "to": "LAS",
+    "departDate": "2026-02-09",
+    "returnDate": "2026-02-16",
+    "totalPrice": 198,
+    "outbound": { /* FlightResult */ },
+    "return": { /* FlightResult */ }
+  }
+}
+```
+
+---
+
 ### `POST /flights/return`
 Search for return flights using a selected outbound flight token.
 
