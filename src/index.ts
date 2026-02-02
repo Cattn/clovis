@@ -1,9 +1,21 @@
-import { Elysia } from 'elysia'
+import { Elysia } from "elysia";
+import { tokenRoutes } from "./routes/token";
+import { searchRoutes } from "./routes/flights/search";
+import { returnRoutes } from "./routes/flights/return";
 
 const app = new Elysia()
-	.get('/', () => 'Hello Elysia')
-	.listen(3000)
+  .get("/", () => ({ 
+    name: "Clovis Flight API",
+    version: "1.0.0",
+    endpoints: [
+      "GET /token - Get fresh authentication tokens",
+      "GET /flights/search?from=XXX&to=XXX&departDate=YYYY-MM-DD&returnDate=YYYY-MM-DD - Search flights",
+      "POST /flights/return - Search return flights with selected outbound token",
+    ],
+  }))
+  .use(tokenRoutes)
+  .use(searchRoutes)
+  .use(returnRoutes)
+  .listen(3000);
 
-console.log(
-	`🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`
-)
+console.log(`🦊 Clovis API is running at http://${app.server?.hostname}:${app.server?.port}`);
