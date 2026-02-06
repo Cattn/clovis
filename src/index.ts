@@ -7,7 +7,7 @@ import { cheapestRoutes } from "./routes/flights/cheapest";
 import { oneWayRoutes } from "./routes/flights/explore";
 
 const app = new Elysia()
-  .use(cors({ origin: "http://localhost:5173" }))
+  .use(cors({ origin: "http://100.100.163.108:5173" }))
   .get("/", () => ({ 
     name: "Clovis Flight API",
     version: "1.0.0",

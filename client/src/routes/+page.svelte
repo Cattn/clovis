@@ -1,6 +1,6 @@
 <script lang="ts">
     import { Button, FAB, DateField } from 'm3-svelte';
-    import { toYYYYMMDD, searchCheapestInPeriod, type PeriodSearchResult, type CheapestResult } from '$lib/flights';
+    import { toYYYYMMDD, searchCheapestInPeriod, isCheapestResult, type CheapestResult } from '$lib/api/flights';
 
     let from = $state('');
     let to = $state('');
@@ -9,7 +9,9 @@
     let returnDate = $state('');
     let loading = $state(false);
     let error = $state('');
-    let results = $state<PeriodSearchResult[]>([]);
+    let results = $state<CheapestResult[]>([]);
+
+    const timeOnly = (dateTime: string) => dateTime.split(' ')[1] ?? dateTime;
 
     const sampleResults: CheapestResult[] = [
         {
@@ -214,7 +216,8 @@
         }
         loading = true;
         try {
-            results = await searchCheapestInPeriod(from, to, periodStart, periodEnd, days);
+            const periodResults = await searchCheapestInPeriod(from, to, periodStart, periodEnd, days);
+            results = periodResults.filter(isCheapestResult);
             if (results.length === 0) error = 'No valid date combinations in this period.';
         } catch (e) {
             error = e instanceof Error ? e.message : 'Search failed.';
@@ -252,22 +255,19 @@
 </div>
 
 <div class="flex flex-row items-center justify-center mt-4">
-    <h1 class="font-extrabold text-2xl mx-5"> For </h1>
-    <div class="flex bg-surface-container p-5 rounded-2xl">
+    <h1 class="font-extrabold text-xl mx-5"> For </h1>
+    <div class="flex bg-surface-container p-3 rounded-2xl">
         <input type="number" class="w-10 font-bold text-xl" placeholder="5" min="1" max="30" bind:value={days} />
     </div>
-    <h1 class="font-extrabold text-2xl mx-5"> days, between </h1>
+    <h1 class="font-extrabold text-xl mx-5"> days, between </h1>
     <div>
         <DateField label="Date" bind:date={departDate} />
     </div>
-    <h1 class="font-extrabold text-2xl mx-5"> and </h1>
+    <h1 class="font-extrabold text-xl mx-5"> and </h1>
     <div>
         <DateField label="Date" bind:date={returnDate} />
     </div>
 </div>
-
-
-<p class="text-center text-sm text-gray-500">From: {from} To: {to} Days: {days} Depart Date: {departDate} Return Date: {returnDate}</p>
 
 {#if loading}
     <p class="text-center mt-4">Searching…</p>
@@ -275,42 +275,79 @@
     <p class="text-center mt-4 text-red-600">{error}</p>
 {:else if results.length > 0}
     <div class="mt-4 w-full max-w-2xl mx-auto px-4">
-        <h2 class="font-semibold text-lg mb-2">Cheapest options (period)</h2>
+        <h2 class="font-semibold text-lg mb-2">Cheapest Options</h2>
         <ul class="space-y-2">
             {#each results as r (r.departDate + r.returnDate)}
-                <li class="flex justify-between items-center bg-surface-container p-3 rounded-xl">
-                    <span>{r.departDate} → {r.returnDate}</span>
-                    <span class="font-semibold">
-                        {#if r.totalPrice === Infinity}
-                            —
-                        {:else}
-                            ${r.totalPrice}
-                        {/if}
-                    </span>
+                <li class="grid grid-cols-[1fr_auto] bg-surface-container p-3 rounded-xl gap-y-2">
+                    <div class="flex items-center">
+                        <span class="font-bold">{r.departDate} → {r.returnDate}</span>
+                    </div>
+                    <div class="flex items-center justify-center">
+                        <span class="font-semibold text-primary">
+                            {#if r.totalPrice === Infinity}
+                                —
+                            {:else}
+                                ${r.totalPrice}
+                            {/if}
+                        </span>
+                    </div>
+                    <div class="flex items-center mt-1 gap-2">
+                        <div class="bg-surface-container-highest p-3 rounded-2xl">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M20.2 11.825L6.2 15.6q-.65.175-1.263-.075t-.962-.825L1.7 10.9q-.275-.425-.087-.9t.687-.6l.575-.15q.25-.05.488-.012t.437.212l2.4 2l3.5-.925l-4.075-5.45q-.4-.525-.2-1.137t.85-.788l.525-.125q.275-.075.588-.025t.537.25L14.9 9.125l4.25-1.15q.8-.225 1.513.188t.937 1.212t-.187 1.513t-1.213.937M4 21q-.425 0-.712-.288T3 20t.288-.712T4 19h16q.425 0 .713.288T21 20t-.288.713T20 21z"/></svg>
+                        </div>
+                        <div class="flex flex-col">
+                            <span class="font-medium text-sm">{timeOnly(r.outbound.departureTime)} → {timeOnly(r.outbound.arrivalTime)} • {r.outbound.duration} --- {timeOnly(r.return.departureTime)} → {timeOnly(r.return.arrivalTime)} • {r.return.duration}</span>
+                            <span class="text-secondary text-sm">{r.outbound.airline} {r.outbound.flightNumber}</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-center button-mod2">
+                        <Button variant="outlined" onclick={() => window.open(r.searchUrl, '_blank')}>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M5 21q-.825 0-1.412-.587T3 19V5q0-.825.588-1.412T5 3h7v2H5v14h14v-7h2v7q0 .825-.587 1.413T19 21zm4.7-5.3l-1.4-1.4L17.6 5H14V3h7v7h-2V6.4z"/></svg>
+                        </Button>
+                    </div>
                 </li>
             {/each}
         </ul>
     </div>
 {/if}
 
+{#if results.length === 0}
 <div class="mt-6 w-full max-w-2xl mx-auto px-4">
     <h2 class="font-semibold text-lg mb-2">Sample results</h2>
     <ul class="space-y-2">
         {#each sampleResults as r (r.departDate + r.returnDate)}
-            <li class="flex justify-between items-center bg-surface-container p-3 rounded-xl">
-                <span>{r.departDate} → {r.returnDate}</span>
-                <span class="font-semibold">
-                    {#if r.totalPrice === Infinity}
-                        —
-                    {:else}
-                        ${r.totalPrice}
-                    {/if}
-                </span>
+            <li class="grid grid-cols-[1fr_auto] bg-surface-container p-3 rounded-xl gap-y-2">
+                <div class="flex items-center">
+                    <span class="font-bold">{r.departDate} → {r.returnDate}</span>
+                </div>
+                <div class="flex items-center justify-center">
+                    <span class="font-semibold text-primary">
+                        {#if r.totalPrice === Infinity}
+                            —
+                        {:else}
+                            ${r.totalPrice}
+                        {/if}
+                    </span>
+                </div>
+                <div class="flex items-center mt-1 gap-2">
+                    <div class="bg-surface-container-highest p-3 rounded-2xl">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M20.2 11.825L6.2 15.6q-.65.175-1.263-.075t-.962-.825L1.7 10.9q-.275-.425-.087-.9t.687-.6l.575-.15q.25-.05.488-.012t.437.212l2.4 2l3.5-.925l-4.075-5.45q-.4-.525-.2-1.137t.85-.788l.525-.125q.275-.075.588-.025t.537.25L14.9 9.125l4.25-1.15q.8-.225 1.513.188t.937 1.212t-.187 1.513t-1.213.937M4 21q-.425 0-.712-.288T3 20t.288-.712T4 19h16q.425 0 .713.288T21 20t-.288.713T20 21z"/></svg>
+                    </div>
+                    <div class="flex flex-col">
+                        <span class="font-medium text-sm">{timeOnly(r.outbound.departureTime)} → {timeOnly(r.return.arrivalTime)} • {r.outbound.duration}</span>
+                        <span class="text-secondary text-sm">{r.outbound.airline} {r.outbound.flightNumber}</span>
+                    </div>
+                </div>
+                <div class="flex items-center justify-center button-mod2">
+                    <Button variant="outlined" onclick={() => window.open(r.searchUrl, '_blank')}>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M5 21q-.825 0-1.412-.587T3 19V5q0-.825.588-1.412T5 3h7v2H5v14h14v-7h2v7q0 .825-.587 1.413T19 21zm4.7-5.3l-1.4-1.4L17.6 5H14V3h7v7h-2V6.4z"/></svg>
+                    </Button>
+                </div>
             </li>
         {/each}
     </ul>
 </div>
-
+{/if}
 
 
 

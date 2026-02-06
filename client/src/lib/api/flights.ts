@@ -1,4 +1,4 @@
-const API_BASE = 'http://localhost:3000';
+const API_BASE = 'http://100.100.163.108:3000';
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
