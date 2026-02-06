@@ -34,6 +34,18 @@ export interface FlightResult {
   layovers: Layover[];
 }
 
+export interface CheapestData {
+  from: string;
+  to: string;
+  departDate: string;
+  returnDate: string;
+  totalPrice: number;
+  bookingUrl: string;
+  searchUrl: string;
+  outbound: FlightResult;
+  return: FlightResult;
+}
+
 export interface TokenResponse {
   sid: string;
   bl: string;
