@@ -1,4 +1,4 @@
-const API_BASE = 'http://100.100.163.108:3000';
+const API_BASE = 'http://100.92.139.43:3000';
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -52,6 +52,19 @@ export function getRoundTripPairsInPeriod(
 	return pairs;
 }
 
+export function getOneWayDatesInPeriod(periodStart: string, periodEnd: string): string[] {
+	const start = new Date(periodStart + 'T00:00:00.000Z');
+	const end = new Date(periodEnd + 'T00:00:00.000Z');
+	if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) return [];
+	const dates: string[] = [];
+	const cursor = new Date(start);
+	while (cursor <= end) {
+		dates.push(toYYYYMMDDUTC(cursor));
+		cursor.setUTCDate(cursor.getUTCDate() + 1);
+	}
+	return dates;
+}
+
 export interface FlightSegment {
 	origin: string;
 	originName: string;
@@ -92,12 +105,12 @@ export interface CheapestResult {
 	from: string;
 	to: string;
 	departDate: string;
-	returnDate: string;
+	returnDate?: string;
 	totalPrice: number;
-	bookingUrl: string;
+	bookingUrl: string | null;
 	searchUrl: string;
 	outbound: FlightLeg;
-	return: FlightLeg;
+	return: FlightLeg | null;
 }
 
 export async function fetchCheapest(
@@ -118,6 +131,22 @@ export async function fetchCheapest(
 	return json;
 }
 
+export async function fetchCheapestOneWay(
+	from: string,
+	to: string,
+	departDate: string
+): Promise<{ success: true; data: CheapestResult } | { success: false; error: string }> {
+	const params = new URLSearchParams({
+		from: from.trim().toUpperCase(),
+		to: to.trim().toUpperCase(),
+		departDate
+	});
+	const res = await fetch(`${API_BASE}/flights/cheapest/oneWay?${params}`);
+	const json = await res.json();
+	if (!res.ok) return { success: false, error: json?.error ?? res.statusText };
+	return json;
+}
+
 export type PeriodSearchError = {
 	departDate: string;
 	returnDate: string;
@@ -125,9 +154,16 @@ export type PeriodSearchError = {
 	error: string;
 };
 
-export type PeriodSearchResult = CheapestResult | PeriodSearchError;
+export type OneWayPeriodSearchError = {
+	departDate: string;
+	totalPrice: number;
+	error: string;
+};
 
-export function isCheapestResult(r: PeriodSearchResult): r is CheapestResult {
+export type PeriodSearchResult = CheapestResult | PeriodSearchError;
+export type OneWayPeriodSearchResult = CheapestResult | OneWayPeriodSearchError;
+
+export function isCheapestResult(r: PeriodSearchResult | OneWayPeriodSearchResult): r is CheapestResult {
 	return 'outbound' in r && 'return' in r;
 }
 
@@ -145,6 +181,31 @@ export async function searchCheapestInPeriod(
 			const r = await fetchCheapest(from, to, departDate, returnDate);
 			if (!r.success) {
 				return { departDate, returnDate, totalPrice: Infinity, error: r.error };
+			}
+			return r.data;
+		})
+	);
+	results.sort(
+		(a, b) =>
+			(a.totalPrice === Infinity ? 1 : a.totalPrice) -
+			(b.totalPrice === Infinity ? 1 : b.totalPrice)
+	);
+	return results;
+}
+
+export async function searchCheapestOneWayInPeriod(
+	from: string,
+	to: string,
+	periodStart: string,
+	periodEnd: string
+): Promise<OneWayPeriodSearchResult[]> {
+	const dates = getOneWayDatesInPeriod(periodStart, periodEnd);
+	if (dates.length === 0) return [];
+	const results = await Promise.all(
+		dates.map(async (departDate) => {
+			const r = await fetchCheapestOneWay(from, to, departDate);
+			if (!r.success) {
+				return { departDate, totalPrice: Infinity, error: r.error };
 			}
 			return r.data;
 		})

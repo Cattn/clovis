@@ -1,12 +1,13 @@
 <script lang="ts">
     import { Button, FAB, DateField } from 'm3-svelte';
-    import { toYYYYMMDD, searchCheapestInPeriod, isCheapestResult, type CheapestResult } from '$lib/api/flights';
+    import { toYYYYMMDD, searchCheapestInPeriod, searchCheapestOneWayInPeriod, isCheapestResult, type CheapestResult } from '$lib/api/flights';
 
     let from = $state('');
     let to = $state('');
     let days = $state(5);
     let departDate = $state('');
     let returnDate = $state('');
+    let oneWay = $state(false);
     let loading = $state(false);
     let error = $state('');
     let results = $state<CheapestResult[]>([]);
@@ -197,28 +198,64 @@
         }
     ];
 
+    const sampleOneWayResults: CheapestResult[] = [
+        {
+            from: 'PBI',
+            to: 'LGA',
+            departDate: '2025-03-01',
+            totalPrice: 165,
+            bookingUrl: null,
+            searchUrl: 'https://www.google.com/travel/flights/search?q=Flights+from+PBI+to+LGA&hl=en-US&gl=US&curr=USD',
+            outbound: {
+                price: 165,
+                airline: 'Delta',
+                airlineCode: 'DL',
+                flightNumber: 'DL2532',
+                origin: 'PBI',
+                destination: 'LGA',
+                departureTime: '2025-03-01 07:30',
+                arrivalTime: '2025-03-01 10:17',
+                duration: '2h 47m',
+                stops: 0,
+                aircraft: 'Boeing 737',
+                token: 'sample-outbound-1',
+                segments: [
+                    { origin: 'PBI', originName: 'Palm Beach International Airport', destination: 'LGA', destinationName: 'LaGuardia Airport', departureTime: '07:30', arrivalTime: '10:17', duration: '2h 47m', flightNumber: 'DL2532', airline: 'Delta', aircraft: 'Boeing 737' }
+                ],
+                layovers: []
+            },
+            return: null
+        }
+    ];
+
     async function runSearch() {
         error = '';
         results = [];
-        const periodStart = toYYYYMMDD(departDate as unknown as Date);
-        const periodEnd = toYYYYMMDD(returnDate as unknown as Date);
         if (!from?.trim() || !to?.trim()) {
             error = 'Enter origin and destination.';
             return;
         }
-        if (!periodStart || !periodEnd) {
-            error = 'Select both period dates.';
-            return;
-        }
-        if (days < 1 || days > 30) {
-            error = 'Trip length must be 1–30 days.';
-            return;
-        }
         loading = true;
         try {
-            const periodResults = await searchCheapestInPeriod(from, to, periodStart, periodEnd, days);
-            results = periodResults.filter(isCheapestResult);
-            if (results.length === 0) error = 'No valid date combinations in this period.';
+            const periodStart = toYYYYMMDD(departDate as unknown as Date);
+            const periodEnd = toYYYYMMDD(returnDate as unknown as Date);
+            if (!periodStart || !periodEnd) {
+                error = 'Select both period dates.';
+                return;
+            }
+            if (oneWay) {
+                const periodResults = await searchCheapestOneWayInPeriod(from, to, periodStart, periodEnd);
+                results = periodResults.filter(isCheapestResult);
+                if (results.length === 0) error = 'No valid date combinations in this period.';
+            } else {
+                if (days < 1 || days > 30) {
+                    error = 'Trip length must be 1–30 days.';
+                    return;
+                }
+                const periodResults = await searchCheapestInPeriod(from, to, periodStart, periodEnd, days);
+                results = periodResults.filter(isCheapestResult);
+                if (results.length === 0) error = 'No valid date combinations in this period.';
+            }
         } catch (e) {
             error = e instanceof Error ? e.message : 'Search failed.';
         } finally {
@@ -255,18 +292,33 @@
 </div>
 
 <div class="flex flex-row items-center justify-center mt-4">
-    <h1 class="font-extrabold text-xl mx-5"> For </h1>
-    <div class="flex bg-surface-container p-3 rounded-2xl">
-        <input type="number" class="w-10 font-bold text-xl" placeholder="5" min="1" max="30" bind:value={days} />
+    <div class="flex items-center mx-5">
+        <input type="checkbox" class="mr-2" bind:checked={oneWay} />
+        <span class="font-extrabold text-xl">One way</span>
     </div>
-    <h1 class="font-extrabold text-xl mx-5"> days, between </h1>
-    <div>
-        <DateField label="Date" bind:date={departDate} />
-    </div>
-    <h1 class="font-extrabold text-xl mx-5"> and </h1>
-    <div>
-        <DateField label="Date" bind:date={returnDate} />
-    </div>
+    {#if oneWay}
+        <h1 class="font-extrabold text-xl mx-5"> Between </h1>
+        <div>
+            <DateField label="Date" bind:date={departDate} />
+        </div>
+        <h1 class="font-extrabold text-xl mx-5"> and </h1>
+        <div>
+            <DateField label="Date" bind:date={returnDate} />
+        </div>
+    {:else}
+        <h1 class="font-extrabold text-xl mx-5"> For </h1>
+        <div class="flex bg-surface-container p-3 rounded-2xl">
+            <input type="number" class="w-10 font-bold text-xl" placeholder="5" min="1" max="30" bind:value={days} />
+        </div>
+        <h1 class="font-extrabold text-xl mx-5"> days, between </h1>
+        <div>
+            <DateField label="Date" bind:date={departDate} />
+        </div>
+        <h1 class="font-extrabold text-xl mx-5"> and </h1>
+        <div>
+            <DateField label="Date" bind:date={returnDate} />
+        </div>
+    {/if}
 </div>
 
 {#if loading}
@@ -277,10 +329,16 @@
     <div class="mt-4 w-full max-w-2xl mx-auto px-4">
         <h2 class="font-semibold text-lg mb-2">Cheapest Options</h2>
         <ul class="space-y-2">
-            {#each results as r (r.departDate + r.returnDate)}
+            {#each results as r (r.departDate + (r.returnDate ?? ''))}
                 <li class="grid grid-cols-[1fr_auto] bg-surface-container p-3 rounded-xl gap-y-2">
                     <div class="flex items-center">
-                        <span class="font-bold">{r.departDate} → {r.returnDate}</span>
+                        <span class="font-bold">
+                            {#if r.returnDate}
+                                {r.departDate} → {r.returnDate}
+                            {:else}
+                                {r.departDate}
+                            {/if}
+                        </span>
                     </div>
                     <div class="flex items-center justify-center">
                         <span class="font-semibold text-primary">
@@ -296,7 +354,13 @@
                             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M20.2 11.825L6.2 15.6q-.65.175-1.263-.075t-.962-.825L1.7 10.9q-.275-.425-.087-.9t.687-.6l.575-.15q.25-.05.488-.012t.437.212l2.4 2l3.5-.925l-4.075-5.45q-.4-.525-.2-1.137t.85-.788l.525-.125q.275-.075.588-.025t.537.25L14.9 9.125l4.25-1.15q.8-.225 1.513.188t.937 1.212t-.187 1.513t-1.213.937M4 21q-.425 0-.712-.288T3 20t.288-.712T4 19h16q.425 0 .713.288T21 20t-.288.713T20 21z"/></svg>
                         </div>
                         <div class="flex flex-col">
-                            <span class="font-medium text-sm">{timeOnly(r.outbound.departureTime)} → {timeOnly(r.outbound.arrivalTime)} • {r.outbound.duration} --- {timeOnly(r.return.departureTime)} → {timeOnly(r.return.arrivalTime)} • {r.return.duration}</span>
+                            <span class="font-medium text-sm">
+                                {#if r.return}
+                                    {timeOnly(r.outbound.departureTime)} → {timeOnly(r.outbound.arrivalTime)} • {r.outbound.duration} --- {timeOnly(r.return.departureTime)} → {timeOnly(r.return.arrivalTime)} • {r.return.duration}
+                                {:else}
+                                    {timeOnly(r.outbound.departureTime)} → {timeOnly(r.outbound.arrivalTime)} • {r.outbound.duration}
+                                {/if}
+                            </span>
                             <span class="text-secondary text-sm">{r.outbound.airline} {r.outbound.flightNumber}</span>
                         </div>
                     </div>
@@ -315,10 +379,16 @@
 <div class="mt-6 w-full max-w-2xl mx-auto px-4">
     <h2 class="font-semibold text-lg mb-2">Sample results</h2>
     <ul class="space-y-2">
-        {#each sampleResults as r (r.departDate + r.returnDate)}
+        {#each (oneWay ? sampleOneWayResults : sampleResults) as r (r.departDate + (r.returnDate ?? ''))}
             <li class="grid grid-cols-[1fr_auto] bg-surface-container p-3 rounded-xl gap-y-2">
                 <div class="flex items-center">
-                    <span class="font-bold">{r.departDate} → {r.returnDate}</span>
+                    <span class="font-bold">
+                        {#if r.returnDate}
+                            {r.departDate} → {r.returnDate}
+                        {:else}
+                            {r.departDate}
+                        {/if}
+                    </span>
                 </div>
                 <div class="flex items-center justify-center">
                     <span class="font-semibold text-primary">
@@ -334,7 +404,13 @@
                         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M20.2 11.825L6.2 15.6q-.65.175-1.263-.075t-.962-.825L1.7 10.9q-.275-.425-.087-.9t.687-.6l.575-.15q.25-.05.488-.012t.437.212l2.4 2l3.5-.925l-4.075-5.45q-.4-.525-.2-1.137t.85-.788l.525-.125q.275-.075.588-.025t.537.25L14.9 9.125l4.25-1.15q.8-.225 1.513.188t.937 1.212t-.187 1.513t-1.213.937M4 21q-.425 0-.712-.288T3 20t.288-.712T4 19h16q.425 0 .713.288T21 20t-.288.713T20 21z"/></svg>
                     </div>
                     <div class="flex flex-col">
-                        <span class="font-medium text-sm">{timeOnly(r.outbound.departureTime)} → {timeOnly(r.return.arrivalTime)} • {r.outbound.duration}</span>
+                        <span class="font-medium text-sm">
+                            {#if r.return}
+                                {timeOnly(r.outbound.departureTime)} → {timeOnly(r.outbound.arrivalTime)} • {r.outbound.duration} --- {timeOnly(r.return.departureTime)} → {timeOnly(r.return.arrivalTime)} • {r.return.duration}
+                            {:else}
+                                {timeOnly(r.outbound.departureTime)} → {timeOnly(r.outbound.arrivalTime)} • {r.outbound.duration}
+                            {/if}
+                        </span>
                         <span class="text-secondary text-sm">{r.outbound.airline} {r.outbound.flightNumber}</span>
                     </div>
                 </div>
