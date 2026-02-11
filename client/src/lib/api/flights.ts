@@ -1,4 +1,15 @@
-const API_BASE = 'http://100.92.139.43:3000';
+declare global {
+	interface Window {
+		__CLOVIS_API_BASE__?: string;
+	}
+}
+
+const API_BASE =
+	typeof window !== 'undefined' && typeof window.__CLOVIS_API_BASE__ === 'string'
+		? window.__CLOVIS_API_BASE__
+		: typeof window !== 'undefined' && /^https?:/.test(window.location.origin)
+			? window.location.origin
+			: 'http://localhost:3000';
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -50,6 +61,35 @@ export function getRoundTripPairsInPeriod(
 		cursor.setUTCDate(cursor.getUTCDate() + 1);
 	}
 	return pairs;
+}
+
+function shouldKeepWeekendCenteredPair(
+	departDate: string,
+	tripDays: number,
+	preferWeekends: boolean
+): boolean {
+	if (!preferWeekends || tripDays <= 2) return true;
+	const depart = new Date(departDate + 'T00:00:00.000Z');
+	const spanDays = Math.max(0, tripDays - 1);
+	const centerOffset = Math.round(spanDays / 2);
+	depart.setUTCDate(depart.getUTCDate() + centerOffset);
+	const weekday = depart.getUTCDay();
+	return weekday === 5 || weekday === 6 || weekday === 0;
+}
+
+function uniquePairs(pairs: { departDate: string; returnDate: string }[]): {
+	departDate: string;
+	returnDate: string;
+}[] {
+	const seen = new Set<string>();
+	const out: { departDate: string; returnDate: string }[] = [];
+	for (const pair of pairs) {
+		const key = `${pair.departDate}:${pair.returnDate}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		out.push(pair);
+	}
+	return out;
 }
 
 export function getOneWayDatesInPeriod(periodStart: string, periodEnd: string): string[] {
@@ -167,14 +207,33 @@ export function isCheapestResult(r: PeriodSearchResult | OneWayPeriodSearchResul
 	return 'outbound' in r && 'return' in r;
 }
 
+export interface RoundTripSearchOptions {
+	preferWeekends?: boolean;
+	durationMode?: 'exact' | 'plus-minus';
+	durationVariation?: number;
+}
+
 export async function searchCheapestInPeriod(
 	from: string,
 	to: string,
 	periodStart: string,
 	periodEnd: string,
-	tripDays: number
+	tripDays: number,
+	options: RoundTripSearchOptions = {}
 ): Promise<PeriodSearchResult[]> {
-	const pairs = getRoundTripPairsInPeriod(periodStart, periodEnd, tripDays);
+	const durationMode = options.durationMode ?? 'exact';
+	const rawVariation = Math.trunc(options.durationVariation ?? 0);
+	const durationVariation = Number.isFinite(rawVariation) ? Math.max(0, rawVariation) : 0;
+	const minTripDays = Math.max(1, tripDays - (durationMode === 'plus-minus' ? durationVariation : 0));
+	const maxTripDays = Math.max(minTripDays, tripDays + (durationMode === 'plus-minus' ? durationVariation : 0));
+	const pairs = uniquePairs(
+		Array.from({ length: maxTripDays - minTripDays + 1 }, (_, idx) => minTripDays + idx).flatMap(
+			(duration) =>
+				getRoundTripPairsInPeriod(periodStart, periodEnd, duration).filter(({ departDate }) =>
+					shouldKeepWeekendCenteredPair(departDate, duration, options.preferWeekends ?? false)
+				)
+		)
+	);
 	if (pairs.length === 0) return [];
 	const results = await Promise.all(
 		pairs.map(async ({ departDate, returnDate }) => {
@@ -187,8 +246,8 @@ export async function searchCheapestInPeriod(
 	);
 	results.sort(
 		(a, b) =>
-			(a.totalPrice === Infinity ? 1 : a.totalPrice) -
-			(b.totalPrice === Infinity ? 1 : b.totalPrice)
+			(a.totalPrice === Infinity ? Number.MAX_SAFE_INTEGER : a.totalPrice) -
+			(b.totalPrice === Infinity ? Number.MAX_SAFE_INTEGER : b.totalPrice)
 	);
 	return results;
 }

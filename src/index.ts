@@ -1,5 +1,7 @@
 import { Elysia } from "elysia";
 import { cors } from "@elysiajs/cors";
+import { staticPlugin } from "@elysiajs/static";
+import { existsSync } from "node:fs";
 import { tokenRoutes } from "./routes/token";
 import { searchRoutes } from "./routes/flights/search";
 import { returnRoutes } from "./routes/flights/return";
@@ -7,9 +9,12 @@ import { cheapestRoutes } from "./routes/flights/cheapest";
 import { cheapestOneWayRoutes } from "./routes/flights/cheapestOneWay";
 import { oneWayRoutes } from "./routes/flights/explore";
 
-const app = new Elysia()
-  .use(cors({ origin: "http://100.92.139.43:5173" }))
-  .get("/", () => ({ 
+const port = Number(process.env.CLOVIS_BACKEND_PORT ?? process.env.PORT ?? 3000);
+const hasClientDist = existsSync("dist/client");
+
+let app = new Elysia()
+  .use(cors({ origin: true }))
+  .get("/api", () => ({ 
     name: "Clovis Flight API",
     version: "1.0.0",
     endpoints: [
@@ -26,7 +31,18 @@ const app = new Elysia()
   .use(returnRoutes)
   .use(cheapestRoutes)
   .use(cheapestOneWayRoutes)
-  .use(oneWayRoutes)
-  .listen(3000);
+  .use(oneWayRoutes);
+
+if (hasClientDist) {
+  app = app.use(staticPlugin({
+    assets: "dist/client",
+    prefix: "/",
+  }));
+}
+
+app = app.listen({
+    hostname: "127.0.0.1",
+    port,
+  });
 
 console.log(`🦊 Clovis API is running at http://${app.server?.hostname}:${app.server?.port}`);

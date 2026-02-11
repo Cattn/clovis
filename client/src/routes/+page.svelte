@@ -1,4 +1,6 @@
 <script lang="ts">
+    import { onMount } from 'svelte';
+    import { fade, fly, scale } from 'svelte/transition';
     import { Button, FAB, DateField } from 'm3-svelte';
     import { toYYYYMMDD, searchCheapestInPeriod, searchCheapestOneWayInPeriod, isCheapestResult, type CheapestResult } from '$lib/api/flights';
 
@@ -11,222 +13,83 @@
     let loading = $state(false);
     let error = $state('');
     let results = $state<CheapestResult[]>([]);
+    let filtersOpen = $state(false);
+    let preferWeekends = $state(false);
+    let durationMode = $state<'exact' | 'plus-minus'>('exact');
+    let durationVariation = $state(1);
+    let preferredAirlines = $state<string[]>([]);
+    let filtersLoaded = $state(false);
+
+    const airlineOptions = ['Delta', 'American', 'United', 'Southwest', 'JetBlue', 'Spirit', 'Frontier', 'Alaska'];
+    const FILTER_STORAGE_KEY = 'clovis.filters.v1';
 
     const timeOnly = (dateTime: string) => dateTime.split(' ')[1] ?? dateTime;
 
-    const sampleResults: CheapestResult[] = [
-        {
-            from: 'PBI',
-            to: 'LGA',
-            departDate: '2025-03-01',
-            returnDate: '2025-03-06',
-            totalPrice: 287,
-            bookingUrl: 'https://www.google.com/travel/flights/booking?tfs=CBwQAhpA&hl=en-US&gl=US&curr=USD',
-            searchUrl: 'https://www.google.com/travel/flights/search?q=Flights+from+PBI+to+LGA&hl=en-US&gl=US&curr=USD',
-            outbound: {
-                price: 165,
-                airline: 'Delta',
-                airlineCode: 'DL',
-                flightNumber: 'DL2532',
-                origin: 'PBI',
-                destination: 'LGA',
-                departureTime: '2025-03-01 07:30',
-                arrivalTime: '2025-03-01 10:17',
-                duration: '2h 47m',
-                stops: 0,
-                aircraft: 'Boeing 737',
-                token: 'sample-outbound-1',
-                segments: [
-                    { origin: 'PBI', originName: 'Palm Beach International Airport', destination: 'LGA', destinationName: 'LaGuardia Airport', departureTime: '07:30', arrivalTime: '10:17', duration: '2h 47m', flightNumber: 'DL2532', airline: 'Delta', aircraft: 'Boeing 737' }
-                ],
-                layovers: []
-            },
-            return: {
-                price: 122,
-                airline: 'Delta',
-                airlineCode: 'DL',
-                flightNumber: 'DL2460',
-                origin: 'LGA',
-                destination: 'PBI',
-                departureTime: '2025-03-06 15:37',
-                arrivalTime: '2025-03-06 18:52',
-                duration: '3h 15m',
-                stops: 0,
-                aircraft: 'Boeing 737',
-                token: 'sample-return-1',
-                segments: [
-                    { origin: 'LGA', originName: 'LaGuardia Airport', destination: 'PBI', destinationName: 'Palm Beach International Airport', departureTime: '15:37', arrivalTime: '18:52', duration: '3h 15m', flightNumber: 'DL2460', airline: 'Delta', aircraft: 'Boeing 737' }
-                ],
-                layovers: []
-            }
-        },
-        {
-            from: 'PBI',
-            to: 'LGA',
-            departDate: '2025-03-02',
-            returnDate: '2025-03-07',
-            totalPrice: 312,
-            bookingUrl: 'https://www.google.com/travel/flights/booking?tfs=CBwQAhpB&hl=en-US&gl=US&curr=USD',
-            searchUrl: 'https://www.google.com/travel/flights/search?q=Flights+from+PBI+to+LGA&hl=en-US&gl=US&curr=USD',
-            outbound: {
-                price: 198,
-                airline: 'JetBlue',
-                airlineCode: 'B6',
-                flightNumber: 'B6123',
-                origin: 'PBI',
-                destination: 'LGA',
-                departureTime: '2025-03-02 06:00',
-                arrivalTime: '2025-03-02 09:22',
-                duration: '3h 22m',
-                stops: 0,
-                aircraft: 'A320',
-                token: 'sample-outbound-2',
-                segments: [
-                    { origin: 'PBI', originName: 'Palm Beach International Airport', destination: 'LGA', destinationName: 'LaGuardia Airport', departureTime: '06:00', arrivalTime: '09:22', duration: '3h 22m', flightNumber: 'B6123', airline: 'JetBlue', aircraft: 'A320' }
-                ],
-                layovers: []
-            },
-            return: {
-                price: 114,
-                airline: 'American',
-                airlineCode: 'AA',
-                flightNumber: 'AA456',
-                origin: 'LGA',
-                destination: 'PBI',
-                departureTime: '2025-03-07 14:00',
-                arrivalTime: '2025-03-07 17:30',
-                duration: '3h 30m',
-                stops: 0,
-                aircraft: '',
-                token: 'sample-return-2',
-                segments: [
-                    { origin: 'LGA', originName: 'LaGuardia Airport', destination: 'PBI', destinationName: 'Palm Beach International Airport', departureTime: '14:00', arrivalTime: '17:30', duration: '3h 30m', flightNumber: 'AA456', airline: 'American', aircraft: '' }
-                ],
-                layovers: []
-            }
-        },
-        {
-            from: 'PBI',
-            to: 'LGA',
-            departDate: '2025-03-03',
-            returnDate: '2025-03-08',
-            totalPrice: 265,
-            bookingUrl: 'https://www.google.com/travel/flights/booking?tfs=CBwQAhpC&hl=en-US&gl=US&curr=USD',
-            searchUrl: 'https://www.google.com/travel/flights/search?q=Flights+from+PBI+to+LGA&hl=en-US&gl=US&curr=USD',
-            outbound: {
-                price: 142,
-                airline: 'Spirit',
-                airlineCode: 'NK',
-                flightNumber: 'NK789',
-                origin: 'PBI',
-                destination: 'LGA',
-                departureTime: '2025-03-03 11:15',
-                arrivalTime: '2025-03-03 14:45',
-                duration: '3h 30m',
-                stops: 1,
-                aircraft: 'A320',
-                token: 'sample-outbound-3',
-                segments: [
-                    { origin: 'PBI', originName: 'Palm Beach International Airport', destination: 'FLL', destinationName: 'Fort Lauderdale-Hollywood International', departureTime: '11:15', arrivalTime: '11:50', duration: '35m', flightNumber: 'NK789', airline: 'Spirit', aircraft: 'A320' },
-                    { origin: 'FLL', originName: 'Fort Lauderdale-Hollywood International', destination: 'LGA', destinationName: 'LaGuardia Airport', departureTime: '13:00', arrivalTime: '14:45', duration: '2h 45m', flightNumber: 'NK789', airline: 'Spirit', aircraft: 'A320' }
-                ],
-                layovers: [{ airport: 'FLL', airportName: 'Fort Lauderdale-Hollywood International', duration: '1h 10m' }]
-            },
-            return: {
-                price: 123,
-                airline: 'Spirit',
-                airlineCode: 'NK',
-                flightNumber: 'NK790',
-                origin: 'LGA',
-                destination: 'PBI',
-                departureTime: '2025-03-08 16:00',
-                arrivalTime: '2025-03-08 20:15',
-                duration: '4h 15m',
-                stops: 0,
-                aircraft: 'A320',
-                token: 'sample-return-3',
-                segments: [
-                    { origin: 'LGA', originName: 'LaGuardia Airport', destination: 'PBI', destinationName: 'Palm Beach International Airport', departureTime: '16:00', arrivalTime: '20:15', duration: '4h 15m', flightNumber: 'NK790', airline: 'Spirit', aircraft: 'A320' }
-                ],
-                layovers: []
-            }
-        },
-        {
-            from: 'PBI',
-            to: 'LGA',
-            departDate: '2025-03-08',
-            returnDate: '2025-03-13',
-            totalPrice: 341,
-            bookingUrl: 'https://www.google.com/travel/flights/booking?tfs=CBwQAhpD&hl=en-US&gl=US&curr=USD',
-            searchUrl: 'https://www.google.com/travel/flights/search?q=Flights+from+PBI+to+LGA&hl=en-US&gl=US&curr=USD',
-            outbound: {
-                price: 212,
-                airline: 'Delta',
-                airlineCode: 'DL',
-                flightNumber: 'DL2532',
-                origin: 'PBI',
-                destination: 'LGA',
-                departureTime: '2025-03-08 07:30',
-                arrivalTime: '2025-03-08 10:17',
-                duration: '2h 47m',
-                stops: 0,
-                aircraft: '',
-                token: 'sample-outbound-4',
-                segments: [
-                    { origin: 'PBI', originName: 'Palm Beach International Airport', destination: 'LGA', destinationName: 'LaGuardia Airport', departureTime: '07:30', arrivalTime: '10:17', duration: '2h 47m', flightNumber: 'DL2532', airline: 'Delta', aircraft: '' }
-                ],
-                layovers: []
-            },
-            return: {
-                price: 129,
-                airline: 'Delta',
-                airlineCode: 'DL',
-                flightNumber: 'DL2460',
-                origin: 'LGA',
-                destination: 'PBI',
-                departureTime: '2025-03-13 15:37',
-                arrivalTime: '2025-03-13 18:52',
-                duration: '3h 15m',
-                stops: 0,
-                aircraft: '',
-                token: 'sample-return-4',
-                segments: [
-                    { origin: 'LGA', originName: 'LaGuardia Airport', destination: 'PBI', destinationName: 'Palm Beach International Airport', departureTime: '15:37', arrivalTime: '18:52', duration: '3h 15m', flightNumber: 'DL2460', airline: 'Delta', aircraft: '' }
-                ],
-                layovers: []
-            }
-        }
-    ];
+    function togglePreferredAirline(airline: string) {
+        preferredAirlines = preferredAirlines.includes(airline)
+            ? preferredAirlines.filter((a) => a !== airline)
+            : [...preferredAirlines, airline];
+    }
 
-    const sampleOneWayResults: CheapestResult[] = [
-        {
-            from: 'PBI',
-            to: 'LGA',
-            departDate: '2025-03-01',
-            totalPrice: 165,
-            bookingUrl: null,
-            searchUrl: 'https://www.google.com/travel/flights/search?q=Flights+from+PBI+to+LGA&hl=en-US&gl=US&curr=USD',
-            outbound: {
-                price: 165,
-                airline: 'Delta',
-                airlineCode: 'DL',
-                flightNumber: 'DL2532',
-                origin: 'PBI',
-                destination: 'LGA',
-                departureTime: '2025-03-01 07:30',
-                arrivalTime: '2025-03-01 10:17',
-                duration: '2h 47m',
-                stops: 0,
-                aircraft: 'Boeing 737',
-                token: 'sample-outbound-1',
-                segments: [
-                    { origin: 'PBI', originName: 'Palm Beach International Airport', destination: 'LGA', destinationName: 'LaGuardia Airport', departureTime: '07:30', arrivalTime: '10:17', duration: '2h 47m', flightNumber: 'DL2532', airline: 'Delta', aircraft: 'Boeing 737' }
-                ],
-                layovers: []
-            },
-            return: null
+    function airlineRank(airline: string) {
+        const idx = preferredAirlines.indexOf(airline);
+        return idx === -1 ? Number.MAX_SAFE_INTEGER : idx;
+    }
+
+    function orderResultsByAirlinePreference(list: CheapestResult[]) {
+        if (!oneWay || preferredAirlines.length === 0) return list;
+        return [...list].sort((a, b) => {
+            const rankDelta = airlineRank(a.outbound.airline) - airlineRank(b.outbound.airline);
+            if (rankDelta !== 0) return rankDelta;
+            return a.totalPrice - b.totalPrice;
+        });
+    }
+
+    onMount(() => {
+        try {
+            const raw = localStorage.getItem(FILTER_STORAGE_KEY);
+            if (raw) {
+                const parsed = JSON.parse(raw) as {
+                    oneWay?: boolean;
+                    preferWeekends?: boolean;
+                    durationMode?: 'exact' | 'plus-minus';
+                    durationVariation?: number;
+                    preferredAirlines?: string[];
+                };
+                oneWay = !!parsed.oneWay;
+                preferWeekends = !!parsed.preferWeekends;
+                durationMode = parsed.durationMode === 'plus-minus' ? 'plus-minus' : 'exact';
+                const variation = Number(parsed.durationVariation);
+                durationVariation = Number.isFinite(variation) ? Math.min(10, Math.max(0, Math.trunc(variation))) : 1;
+                preferredAirlines = Array.isArray(parsed.preferredAirlines)
+                    ? parsed.preferredAirlines.filter((airline) => airlineOptions.includes(airline))
+                    : [];
+            }
+        } catch {
+        } finally {
+            filtersLoaded = true;
         }
-    ];
+    });
+
+    $effect(() => {
+        if (!filtersLoaded) return;
+        localStorage.setItem(
+            FILTER_STORAGE_KEY,
+            JSON.stringify({
+                oneWay,
+                preferWeekends,
+                durationMode,
+                durationVariation,
+                preferredAirlines
+            })
+        );
+    });
+
+    function swapAirports() {
+        const previousFrom = from;
+        from = to;
+        to = previousFrom;
+    }
 
     async function runSearch() {
         error = '';
@@ -245,14 +108,22 @@
             }
             if (oneWay) {
                 const periodResults = await searchCheapestOneWayInPeriod(from, to, periodStart, periodEnd);
-                results = periodResults.filter(isCheapestResult);
+                results = orderResultsByAirlinePreference(periodResults.filter(isCheapestResult));
                 if (results.length === 0) error = 'No valid date combinations in this period.';
             } else {
                 if (days < 1 || days > 30) {
                     error = 'Trip length must be 1–30 days.';
                     return;
                 }
-                const periodResults = await searchCheapestInPeriod(from, to, periodStart, periodEnd, days);
+                if (durationMode === 'plus-minus' && (durationVariation < 0 || durationVariation > 10)) {
+                    error = 'Variation must be 0–10 days.';
+                    return;
+                }
+                const periodResults = await searchCheapestInPeriod(from, to, periodStart, periodEnd, days, {
+                    preferWeekends,
+                    durationMode,
+                    durationVariation
+                });
                 results = periodResults.filter(isCheapestResult);
                 if (results.length === 0) error = 'No valid date combinations in this period.';
             }
@@ -262,18 +133,120 @@
             loading = false;
         }
     }
+
+    function openFilters() {
+        filtersOpen = true;
+    }
 </script>
 
 <div class="flex flex-col items-center justify-center mt-4">
     <h1 class="title">Where to?</h1>
 </div>
 
+{#if filtersOpen}
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-scrim/60 p-4" transition:fade={{ duration: 180 }}>
+        <div class="w-full max-w-2xl rounded-3xl bg-surface-container p-6 shadow-2xl ring-1 ring-outline-variant/40" in:scale={{ duration: 200, start: 0.96 }} out:scale={{ duration: 160, start: 0.96 }}>
+            <div class="mb-5 flex items-center justify-between">
+                <h2 class="text-2xl font-extrabold text-on-surface">Filters</h2>
+                <Button variant="text" onclick={() => (filtersOpen = false)}>
+                    Close
+                </Button>
+            </div>
+            <div class="space-y-5">
+                <div class="rounded-2xl bg-surface-container-high p-4">
+                    <h3 class="font-bold text-on-surface">Trip type</h3>
+                    <div class="mt-3 grid gap-3 sm:grid-cols-2">
+                        <button
+                            class={`rounded-xl border px-4 py-3 text-left ${oneWay ? 'border-outline-variant bg-surface-container text-on-surface' : 'border-primary bg-primary-container text-on-primary-container'}`}
+                            onclick={() => (oneWay = false)}
+                        >
+                            Round trip
+                        </button>
+                        <button
+                            class={`rounded-xl border px-4 py-3 text-left ${oneWay ? 'border-primary bg-primary-container text-on-primary-container' : 'border-outline-variant bg-surface-container text-on-surface'}`}
+                            onclick={() => (oneWay = true)}
+                        >
+                            One way
+                        </button>
+                    </div>
+                </div>
+                {#if !oneWay}
+                    <div class="rounded-2xl bg-surface-container-high p-4">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h3 class="font-bold text-on-surface">Prefer weekends</h3>
+                                <p class="text-sm text-on-surface-variant">For trips longer than 2 days, center dates near Fri-Sun.</p>
+                            </div>
+                            <input type="checkbox" class="h-5 w-5 accent-primary" bind:checked={preferWeekends} />
+                        </div>
+                    </div>
+                    <div class="rounded-2xl bg-surface-container-high p-4">
+                        <h3 class="font-bold text-on-surface">Trip duration mode</h3>
+                        <div class="mt-3 grid gap-3 sm:grid-cols-2">
+                            <button
+                                class={`rounded-xl border px-4 py-3 text-left ${durationMode === 'exact' ? 'border-primary bg-primary-container text-on-primary-container' : 'border-outline-variant bg-surface-container text-on-surface'}`}
+                                onclick={() => (durationMode = 'exact')}
+                            >
+                                Exact days
+                            </button>
+                            <button
+                                class={`rounded-xl border px-4 py-3 text-left ${durationMode === 'plus-minus' ? 'border-primary bg-primary-container text-on-primary-container' : 'border-outline-variant bg-surface-container text-on-surface'}`}
+                                onclick={() => (durationMode = 'plus-minus')}
+                            >
+                                +/- range
+                            </button>
+                        </div>
+                        {#if durationMode === 'plus-minus'}
+                            <div class="mt-3 flex items-center gap-3">
+                                <span class="text-sm font-semibold text-on-surface-variant">Variation</span>
+                                <div class="rounded-xl bg-surface p-2">
+                                    <input type="number" min="0" max="10" class="w-16 bg-transparent text-center font-bold text-on-surface outline-none" bind:value={durationVariation} />
+                                </div>
+                                <span class="text-sm text-on-surface-variant">days</span>
+                            </div>
+                        {/if}
+                    </div>
+                {/if}
+                <div class="rounded-2xl bg-surface-container-high p-4">
+                    <div class="mb-3">
+                        <h3 class="font-bold text-on-surface">Preferred airlines</h3>
+                        <p class="text-sm text-on-surface-variant">Selected airlines are shown first in one-way results.</p>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        {#each airlineOptions as airline}
+                            <button
+                                class={`rounded-xl border px-3 py-2 text-sm font-semibold ${preferredAirlines.includes(airline) ? 'border-primary bg-secondary-container text-on-secondary-container' : 'border-outline-variant bg-surface text-on-surface'}`}
+                                onclick={() => togglePreferredAirline(airline)}
+                            >
+                                {airline}
+                            </button>
+                        {/each}
+                    </div>
+                </div>
+                <div class="flex justify-end gap-3">
+                    <Button variant="outlined" onclick={() => {
+                        preferWeekends = false;
+                        durationMode = 'exact';
+                        durationVariation = 1;
+                        preferredAirlines = [];
+                    }}>
+                        Reset
+                    </Button>
+                    <Button variant="filled" onclick={() => (filtersOpen = false)}>
+                        Done
+                    </Button>
+                </div>
+            </div>
+        </div>
+    </div>
+{/if}
+
 <div class="flex flex-row items-center justify-center mt-4">
     <div class="flex bg-surface-container p-5 rounded-2xl">
         <input type="text" class="w-full font-bold text-xl" placeholder="XYZ" bind:value={from} />
     </div>
     <div class="button-mod mx-12">
-        <Button variant="outlined" square>
+        <Button variant="outlined" square onclick={swapAirports}>
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M5.825 16L7.7 17.875q.275.275.275.688t-.275.712q-.3.3-.712.3t-.713-.3L2.7 15.7q-.15-.15-.213-.325T2.426 15t.063-.375t.212-.325l3.6-3.6q.3-.3.7-.287t.7.312q.275.3.288.7t-.288.7L5.825 14H12q.425 0 .713.288T13 15t-.288.713T12 16zm12.35-6H12q-.425 0-.712-.288T11 9t.288-.712T12 8h6.175L16.3 6.125q-.275-.275-.275-.687t.275-.713q.3-.3.713-.3t.712.3L21.3 8.3q.15.15.212.325t.063.375t-.063.375t-.212.325l-3.6 3.6q-.3.3-.7.288t-.7-.313q-.275-.3-.288-.7t.288-.7z"/></svg>
         </Button>
     </div>
@@ -292,10 +265,6 @@
 </div>
 
 <div class="flex flex-row items-center justify-center mt-4">
-    <div class="flex items-center mx-5">
-        <input type="checkbox" class="mr-2" bind:checked={oneWay} />
-        <span class="font-extrabold text-xl">One way</span>
-    </div>
     {#if oneWay}
         <h1 class="font-extrabold text-xl mx-5"> Between </h1>
         <div>
@@ -319,6 +288,11 @@
             <DateField label="Date" bind:date={returnDate} />
         </div>
     {/if}
+    <div class="flex mx-5 button-mod">
+        <Button variant="filled" onclick={openFilters}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M11 18q-.425 0-.712-.288T10 17t.288-.712T11 16h2q.425 0 .713.288T14 17t-.288.713T13 18zm-4-5q-.425 0-.712-.288T6 12t.288-.712T7 11h10q.425 0 .713.288T18 12t-.288.713T17 13zM4 8q-.425 0-.712-.288T3 7t.288-.712T4 6h16q.425 0 .713.288T21 7t-.288.713T20 8z"/></svg>        
+        </Button>
+    </div>
 </div>
 
 {#if loading}
@@ -326,11 +300,11 @@
 {:else if error}
     <p class="text-center mt-4 text-red-600">{error}</p>
 {:else if results.length > 0}
-    <div class="mt-4 w-full max-w-2xl mx-auto px-4">
+    <div class="mt-4 w-full max-w-2xl mx-auto px-4" in:fade={{ duration: 220 }}>
         <h2 class="font-semibold text-lg mb-2">Cheapest Options</h2>
         <ul class="space-y-2">
-            {#each results as r (r.departDate + (r.returnDate ?? ''))}
-                <li class="grid grid-cols-[1fr_auto] bg-surface-container p-3 rounded-xl gap-y-2">
+            {#each results as r, index (r.departDate + (r.returnDate ?? ''))}
+                <li class="grid grid-cols-[1fr_auto] bg-surface-container p-3 rounded-xl gap-y-2" in:fly={{ y: 14, duration: 260, delay: index * 45 }} out:fade={{ duration: 120 }}>
                     <div class="flex items-center">
                         <span class="font-bold">
                             {#if r.returnDate}
@@ -373,56 +347,6 @@
             {/each}
         </ul>
     </div>
-{/if}
-
-{#if results.length === 0}
-<div class="mt-6 w-full max-w-2xl mx-auto px-4">
-    <h2 class="font-semibold text-lg mb-2">Sample results</h2>
-    <ul class="space-y-2">
-        {#each (oneWay ? sampleOneWayResults : sampleResults) as r (r.departDate + (r.returnDate ?? ''))}
-            <li class="grid grid-cols-[1fr_auto] bg-surface-container p-3 rounded-xl gap-y-2">
-                <div class="flex items-center">
-                    <span class="font-bold">
-                        {#if r.returnDate}
-                            {r.departDate} → {r.returnDate}
-                        {:else}
-                            {r.departDate}
-                        {/if}
-                    </span>
-                </div>
-                <div class="flex items-center justify-center">
-                    <span class="font-semibold text-primary">
-                        {#if r.totalPrice === Infinity}
-                            —
-                        {:else}
-                            ${r.totalPrice}
-                        {/if}
-                    </span>
-                </div>
-                <div class="flex items-center mt-1 gap-2">
-                    <div class="bg-surface-container-highest p-3 rounded-2xl">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M20.2 11.825L6.2 15.6q-.65.175-1.263-.075t-.962-.825L1.7 10.9q-.275-.425-.087-.9t.687-.6l.575-.15q.25-.05.488-.012t.437.212l2.4 2l3.5-.925l-4.075-5.45q-.4-.525-.2-1.137t.85-.788l.525-.125q.275-.075.588-.025t.537.25L14.9 9.125l4.25-1.15q.8-.225 1.513.188t.937 1.212t-.187 1.513t-1.213.937M4 21q-.425 0-.712-.288T3 20t.288-.712T4 19h16q.425 0 .713.288T21 20t-.288.713T20 21z"/></svg>
-                    </div>
-                    <div class="flex flex-col">
-                        <span class="font-medium text-sm">
-                            {#if r.return}
-                                {timeOnly(r.outbound.departureTime)} → {timeOnly(r.outbound.arrivalTime)} • {r.outbound.duration} --- {timeOnly(r.return.departureTime)} → {timeOnly(r.return.arrivalTime)} • {r.return.duration}
-                            {:else}
-                                {timeOnly(r.outbound.departureTime)} → {timeOnly(r.outbound.arrivalTime)} • {r.outbound.duration}
-                            {/if}
-                        </span>
-                        <span class="text-secondary text-sm">{r.outbound.airline} {r.outbound.flightNumber}</span>
-                    </div>
-                </div>
-                <div class="flex items-center justify-center button-mod2">
-                    <Button variant="outlined" onclick={() => window.open(r.searchUrl, '_blank')}>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M5 21q-.825 0-1.412-.587T3 19V5q0-.825.588-1.412T5 3h7v2H5v14h14v-7h2v7q0 .825-.587 1.413T19 21zm4.7-5.3l-1.4-1.4L17.6 5H14V3h7v7h-2V6.4z"/></svg>
-                    </Button>
-                </div>
-            </li>
-        {/each}
-    </ul>
-</div>
 {/if}
 
 
