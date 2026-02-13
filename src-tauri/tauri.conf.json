@@ -7,7 +7,7 @@
     "frontendDist": "../dist/client",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "bun run dev:all",
-    "beforeBuildCommand": "bun build src/index.ts --target node --outdir ./dist && bun run build:client"
+    "beforeBuildCommand": "bun build src/index.ts --target node --outdir ./src-tauri/resources && bun run build:client"
   },
   "app": {
     "windows": [
@@ -34,8 +34,7 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "resources/node*",
-      "../dist/index.js"
+      "resources/*"
     ]
   }
 }

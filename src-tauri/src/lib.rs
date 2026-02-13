@@ -36,11 +36,11 @@ pub fn run(port: u16) {
         let resource_dir = app.path().resource_dir()?;
 
         #[cfg(target_os = "windows")]
-        let node_bin = resource_dir.join("node.exe");
+        let node_bin = resource_dir.join("resources").join("node.exe");
         #[cfg(not(target_os = "windows"))]
-        let node_bin = resource_dir.join("node");
+        let node_bin = resource_dir.join("resources").join("node");
 
-        let server_script = resource_dir.join("index.js");
+        let server_script = resource_dir.join("resources").join("index.js");
 
         #[cfg(not(target_os = "windows"))]
         {
