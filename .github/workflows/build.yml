@@ -67,9 +67,9 @@ jobs:
 
       - name: Download Node.js binary (windows)
         if: matrix.platform == 'windows-latest'
-        shell: powershell
+        shell: bash
         run: |
-          New-Item -ItemType Directory -Force -Path src-tauri/resources
+          mkdir -p src-tauri/resources
           curl -Lo src-tauri/resources/node.exe ${{ matrix.node_url }}
 
       - uses: tauri-apps/tauri-action@v0
