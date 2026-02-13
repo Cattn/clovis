@@ -4,6 +4,17 @@
     import { Button, FAB, DateField } from 'm3-svelte';
     import { toYYYYMMDD, searchCheapestInPeriod, searchCheapestOneWayInPeriod, isCheapestResult, type CheapestResult } from '$lib/api/flights';
 
+    const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+
+    async function openLink(url: string) {
+        if (isTauri) {
+            const { openUrl } = await import('@tauri-apps/plugin-opener');
+            await openUrl(url);
+        } else {
+            window.open(url, '_blank');
+        }
+    }
+
     let from = $state('');
     let to = $state('');
     let days = $state(5);
@@ -339,7 +350,7 @@
                         </div>
                     </div>
                     <div class="flex items-center justify-center button-mod2">
-                        <Button variant="outlined" onclick={() => window.open(r.searchUrl, '_blank')}>
+                        <Button variant="outlined" onclick={() => openLink(r.searchUrl)}>
                             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M5 21q-.825 0-1.412-.587T3 19V5q0-.825.588-1.412T5 3h7v2H5v14h14v-7h2v7q0 .825-.587 1.413T19 21zm4.7-5.3l-1.4-1.4L17.6 5H14V3h7v7h-2V6.4z"/></svg>
                         </Button>
                     </div>

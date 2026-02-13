@@ -14,6 +14,7 @@ struct BackendChild(Mutex<Option<Child>>);
 pub fn run(port: u16) {
   let backend_url = format!("http://127.0.0.1:{port}");
   let app = tauri::Builder::default()
+    .plugin(tauri_plugin_opener::init())
     .on_page_load({
       let backend_url = backend_url.clone();
       move |window, _| {
