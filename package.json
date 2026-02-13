@@ -1,6 +1,7 @@
 {
   "dependencies": {
     "@elysiajs/cors": "^1.4.1",
+    "@elysiajs/node": "^1.4.4",
     "@elysiajs/static": "^1.4.7",
     "elysia": "^1.4.22",
     "fetch-cookie": "^3.2.0",

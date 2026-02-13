@@ -1,12 +1,10 @@
 #[cfg(not(debug_assertions))]
-use std::{fs, process::{Child, Command}, sync::Mutex};
+use std::{process::{Child, Command}, sync::Mutex};
 #[cfg(all(not(debug_assertions), target_os = "windows"))]
 use std::os::windows::process::CommandExt;
 use tauri::Manager;
 
-#[cfg(not(debug_assertions))]
-const SERVER_BUNDLE: &str = include_str!("../../dist/index.js");
-#[cfg(not(debug_assertions))]
+#[cfg(all(not(debug_assertions), target_os = "windows"))]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[cfg(not(debug_assertions))]
@@ -34,13 +32,25 @@ pub fn run(port: u16) {
       }
       #[cfg(not(debug_assertions))]
       {
-        let app_data_dir = app.path().app_local_data_dir()?;
-        fs::create_dir_all(&app_data_dir)?;
-        let server_script_path = app_data_dir.join("server.js");
-        fs::write(&server_script_path, SERVER_BUNDLE)?;
-        let mut command = Command::new("bun");
+        let resource_dir = app.path().resource_dir()?;
+
+        #[cfg(target_os = "windows")]
+        let node_bin = resource_dir.join("node.exe");
+        #[cfg(not(target_os = "windows"))]
+        let node_bin = resource_dir.join("node");
+
+        let server_script = resource_dir.join("index.js");
+
+        #[cfg(not(target_os = "windows"))]
+        {
+          use std::os::unix::fs::PermissionsExt;
+          let perms = std::fs::Permissions::from_mode(0o755);
+          std::fs::set_permissions(&node_bin, perms)?;
+        }
+
+        let mut command = Command::new(&node_bin);
         command
-          .arg(&server_script_path)
+          .arg(&server_script)
           .env("CLOVIS_BACKEND_PORT", port.to_string());
         #[cfg(target_os = "windows")]
         command.creation_flags(CREATE_NO_WINDOW);

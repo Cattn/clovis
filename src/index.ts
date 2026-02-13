@@ -1,4 +1,5 @@
 import { Elysia } from "elysia";
+import { node } from "@elysiajs/node";
 import { cors } from "@elysiajs/cors";
 import { staticPlugin } from "@elysiajs/static";
 import { existsSync } from "node:fs";
@@ -12,7 +13,7 @@ import { oneWayRoutes } from "./routes/flights/explore";
 const port = Number(process.env.CLOVIS_BACKEND_PORT ?? process.env.PORT ?? 3000);
 const hasClientDist = existsSync("dist/client");
 
-let app = new Elysia()
+let app = new Elysia({ adapter: node() })
   .use(cors({ origin: true }))
   .get("/api", () => ({ 
     name: "Clovis Flight API",
@@ -45,4 +46,4 @@ app = app.listen({
     port,
   });
 
-console.log(`🦊 Clovis API is running at http://${app.server?.hostname}:${app.server?.port}`);
+console.log(`🦊 Clovis API is running at http://127.0.0.1:${port}`);

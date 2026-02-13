@@ -36,6 +36,9 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # Cursor
 .cursor
 
+# Bundled Node runtime
+src-tauri/resources/node*
+
 # Sample HARs
 samples/
 src/routes/sample/
