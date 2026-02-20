@@ -1,9 +1,17 @@
 {
   "dependencies": {
-    "elysia": "^1.4.22"
+    "@elysiajs/cors": "^1.4.1",
+    "@elysiajs/node": "^1.4.4",
+    "@elysiajs/static": "^1.4.7",
+    "elysia": "^1.4.22",
+    "fetch-cookie": "^3.2.0",
+    "tough-cookie": "^6.0.0"
   },
   "devDependencies": {
-    "@types/bun": "^1.3.8"
+    "@tauri-apps/cli": "^2.10.0",
+    "@types/bun": "^1.3.8",
+    "concurrently": "^9.2.1",
+    "playwright": "^1.58.1"
   },
   "name": "clovis",
   "module": "index.ts",
@@ -13,9 +21,15 @@
     "typescript": "^5"
   },
   "scripts": {
-  		"dev": "bun --watch src/index.ts",
-  		"build": "bun build src/index.ts --target bun --outdir ./dist",
-  		"start": "NODE_ENV=production bun dist/index.js",
-  		"test": "bun test"
-   	}
+    "dev": "bun --watch src/index.ts",
+    "dev:client": "cd client && bun run dev",
+    "dev:all": "concurrently \"bun --watch src/index.ts\" \"bun run dev:client\"",
+    "build": "bun run build:server",
+    "build:server": "bun build src/index.ts --target bun --outdir ./dist",
+    "build:client": "cd client && bun run build",
+    "start": "NODE_ENV=production bun dist/index.js",
+    "test": "bun test",
+    "tauri:dev": "bun tauri dev",
+    "tauri:build": "bun run build:server && bun tauri build"
+  }
 }
