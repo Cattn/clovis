@@ -3,6 +3,7 @@
     import { fade, fly, scale } from 'svelte/transition';
     import { Button, FAB, DateField } from 'm3-svelte';
     import { toYYYYMMDD, searchCheapestInPeriod, searchCheapestOneWayInPeriod, isCheapestResult, type CheapestResult } from '$lib/api/flights';
+    import type { OneWaySearchOptions, RoundTripSearchOptions } from '$lib/api/flights';
 
     const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -22,6 +23,7 @@
     let returnDate = $state('');
     let oneWay = $state(false);
     let loading = $state(false);
+    let searchProgress = $state<{ done: number; total: number } | null>(null);
     let error = $state('');
     let results = $state<CheapestResult[]>([]);
     let filtersOpen = $state(false);
@@ -105,6 +107,7 @@
     async function runSearch() {
         error = '';
         results = [];
+        searchProgress = null;
         if (!from?.trim() || !to?.trim()) {
             error = 'Enter origin and destination.';
             return;
@@ -118,7 +121,10 @@
                 return;
             }
             if (oneWay) {
-                const periodResults = await searchCheapestOneWayInPeriod(from, to, periodStart, periodEnd);
+                const opts: OneWaySearchOptions = {
+                    onProgress: (done, total) => { searchProgress = { done, total }; }
+                };
+                const periodResults = await searchCheapestOneWayInPeriod(from, to, periodStart, periodEnd, opts);
                 results = orderResultsByAirlinePreference(periodResults.filter(isCheapestResult));
                 if (results.length === 0) error = 'No valid date combinations in this period.';
             } else {
@@ -130,11 +136,13 @@
                     error = 'Variation must be 0–10 days.';
                     return;
                 }
-                const periodResults = await searchCheapestInPeriod(from, to, periodStart, periodEnd, days, {
+                const opts: RoundTripSearchOptions = {
                     preferWeekends,
                     durationMode,
-                    durationVariation
-                });
+                    durationVariation,
+                    onProgress: (done, total) => { searchProgress = { done, total }; }
+                };
+                const periodResults = await searchCheapestInPeriod(from, to, periodStart, periodEnd, days, opts);
                 results = periodResults.filter(isCheapestResult);
                 if (results.length === 0) error = 'No valid date combinations in this period.';
             }
@@ -142,6 +150,7 @@
             error = e instanceof Error ? e.message : 'Search failed.';
         } finally {
             loading = false;
+            searchProgress = null;
         }
     }
 
@@ -306,8 +315,26 @@
     </div>
 </div>
 
+<div class="flex justify-center mt-3">
+    <p class="text-xs text-on-surface-variant max-w-xl text-center opacity-70">
+        Make use of filters to reduce the number of combinations sent to Google Flights. Too many at once may cause rate limiting.
+    </p>
+</div>
+
 {#if loading}
-    <p class="text-center mt-4">Searching…</p>
+    <div class="text-center mt-4">
+        {#if searchProgress && searchProgress.total > 0}
+            <p>Checking {searchProgress.done} / {searchProgress.total} combinations…</p>
+            <div class="mt-2 mx-auto w-64 h-1.5 rounded-full bg-surface-container-highest overflow-hidden">
+                <div
+                    class="h-full rounded-full bg-primary transition-all duration-300"
+                    style="width: {Math.round((searchProgress.done / searchProgress.total) * 100)}%"
+                ></div>
+            </div>
+        {:else}
+            <p>Searching…</p>
+        {/if}
+    </div>
 {:else if error}
     <p class="text-center mt-4 text-red-600">{error}</p>
 {:else if results.length > 0}

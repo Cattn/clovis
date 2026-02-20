@@ -13,8 +13,24 @@ import { oneWayRoutes } from "./routes/flights/explore";
 const port = Number(process.env.CLOVIS_BACKEND_PORT ?? process.env.PORT ?? 3000);
 const hasClientDist = existsSync("dist/client");
 
+const FLIGHT_REQUEST_DELAY_MS = 350;
+let flightQueueTail: Promise<void> = Promise.resolve();
+
+function acquireFlightSlot(): Promise<void> {
+  const slot = flightQueueTail.then(
+    () => new Promise<void>((r) => setTimeout(r, FLIGHT_REQUEST_DELAY_MS))
+  );
+  flightQueueTail = slot.catch(() => {});
+  return slot;
+}
+
 let app = new Elysia({ adapter: node() })
   .use(cors({ origin: true }))
+  .onBeforeHandle(async ({ path }) => {
+    if (path.startsWith("/flights/cheapest")) {
+      await acquireFlightSlot();
+    }
+  })
   .get("/api", () => ({ 
     name: "Clovis Flight API",
     version: "1.0.0",

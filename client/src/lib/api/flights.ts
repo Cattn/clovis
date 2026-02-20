@@ -211,6 +211,11 @@ export interface RoundTripSearchOptions {
 	preferWeekends?: boolean;
 	durationMode?: 'exact' | 'plus-minus';
 	durationVariation?: number;
+	onProgress?: (done: number, total: number) => void;
+}
+
+export interface OneWaySearchOptions {
+	onProgress?: (done: number, total: number) => void;
 }
 
 export async function searchCheapestInPeriod(
@@ -235,15 +240,15 @@ export async function searchCheapestInPeriod(
 		)
 	);
 	if (pairs.length === 0) return [];
-	const results = await Promise.all(
-		pairs.map(async ({ departDate, returnDate }) => {
-			const r = await fetchCheapest(from, to, departDate, returnDate);
-			if (!r.success) {
-				return { departDate, returnDate, totalPrice: Infinity, error: r.error };
-			}
-			return r.data;
-		})
-	);
+	const results: PeriodSearchResult[] = [];
+	let done = 0;
+	options.onProgress?.(done, pairs.length);
+	for (const { departDate, returnDate } of pairs) {
+		const r = await fetchCheapest(from, to, departDate, returnDate);
+		results.push(r.success ? r.data : { departDate, returnDate, totalPrice: Infinity, error: r.error });
+		done++;
+		options.onProgress?.(done, pairs.length);
+	}
 	results.sort(
 		(a, b) =>
 			(a.totalPrice === Infinity ? Number.MAX_SAFE_INTEGER : a.totalPrice) -
@@ -256,19 +261,20 @@ export async function searchCheapestOneWayInPeriod(
 	from: string,
 	to: string,
 	periodStart: string,
-	periodEnd: string
+	periodEnd: string,
+	options: OneWaySearchOptions = {}
 ): Promise<OneWayPeriodSearchResult[]> {
 	const dates = getOneWayDatesInPeriod(periodStart, periodEnd);
 	if (dates.length === 0) return [];
-	const results = await Promise.all(
-		dates.map(async (departDate) => {
-			const r = await fetchCheapestOneWay(from, to, departDate);
-			if (!r.success) {
-				return { departDate, totalPrice: Infinity, error: r.error };
-			}
-			return r.data;
-		})
-	);
+	const results: OneWayPeriodSearchResult[] = [];
+	let done = 0;
+	options.onProgress?.(done, dates.length);
+	for (const departDate of dates) {
+		const r = await fetchCheapestOneWay(from, to, departDate);
+		results.push(r.success ? r.data : { departDate, totalPrice: Infinity, error: r.error });
+		done++;
+		options.onProgress?.(done, dates.length);
+	}
 	results.sort(
 		(a, b) =>
 			(a.totalPrice === Infinity ? 1 : a.totalPrice) -

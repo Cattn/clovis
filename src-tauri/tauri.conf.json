@@ -6,7 +6,7 @@
   "build": {
     "frontendDist": "../dist/client",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "bun run dev:all",
+    "beforeDevCommand": "bun build src/index.ts --target bun --outdir ./src-tauri/resources && bun run dev:all",
     "beforeBuildCommand": "bun build src/index.ts --target node --outdir ./src-tauri/resources && bun run build:client"
   },
   "app": {
