@@ -4,6 +4,7 @@
     import { Button, FAB, DateField } from 'm3-svelte';
     import { toYYYYMMDD, searchCheapestInPeriod, searchCheapestOneWayInPeriod, isCheapestResult, type CheapestResult } from '$lib/api/flights';
     import type { OneWaySearchOptions, RoundTripSearchOptions } from '$lib/api/flights';
+    import { searchAirports, type Airport } from '$lib/airports';
 
     const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
@@ -18,6 +19,26 @@
 
     let from = $state('');
     let to = $state('');
+    let fromSuggestions = $state<Airport[]>([]);
+    let toSuggestions = $state<Airport[]>([]);
+
+    function onFromInput(e: Event) {
+        fromSuggestions = searchAirports((e.target as HTMLInputElement).value);
+    }
+
+    function onToInput(e: Event) {
+        toSuggestions = searchAirports((e.target as HTMLInputElement).value);
+    }
+
+    function selectFrom(airport: Airport) {
+        from = airport.code;
+        fromSuggestions = [];
+    }
+
+    function selectTo(airport: Airport) {
+        to = airport.code;
+        toSuggestions = [];
+    }
     let days = $state(5);
     let departDate = $state('');
     let returnDate = $state('');
@@ -262,16 +283,64 @@
 {/if}
 
 <div class="flex flex-row items-center justify-center mt-4">
-    <div class="flex bg-surface-container p-5 rounded-2xl">
-        <input type="text" class="w-full font-bold text-xl" placeholder="XYZ" bind:value={from} />
+    <div class="relative">
+        <div class="flex bg-surface-container p-5 rounded-2xl">
+            <input
+                type="text"
+                class="w-full font-bold text-xl"
+                placeholder="XYZ"
+                bind:value={from}
+                oninput={onFromInput}
+                onblur={() => setTimeout(() => (fromSuggestions = []), 150)}
+            />
+        </div>
+        {#if fromSuggestions.length > 0}
+            <ul class="absolute top-full left-0 right-0 mt-1 bg-surface-container-high rounded-2xl shadow-xl z-50 overflow-hidden">
+                {#each fromSuggestions as airport}
+                    <li>
+                        <button
+                            class="w-full text-left px-4 py-3 hover:bg-surface-container-highest transition-colors"
+                            onmousedown={() => selectFrom(airport)}
+                        >
+                            <span class="font-bold">{airport.code}</span>
+                            <span class="text-on-surface-variant ml-2 text-sm">{airport.city} – {airport.name}</span>
+                        </button>
+                    </li>
+                {/each}
+            </ul>
+        {/if}
     </div>
     <div class="button-mod mx-12">
         <Button variant="outlined" square onclick={swapAirports}>
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M5.825 16L7.7 17.875q.275.275.275.688t-.275.712q-.3.3-.712.3t-.713-.3L2.7 15.7q-.15-.15-.213-.325T2.426 15t.063-.375t.212-.325l3.6-3.6q.3-.3.7-.287t.7.312q.275.3.288.7t-.288.7L5.825 14H12q.425 0 .713.288T13 15t-.288.713T12 16zm12.35-6H12q-.425 0-.712-.288T11 9t.288-.712T12 8h6.175L16.3 6.125q-.275-.275-.275-.687t.275-.713q.3-.3.713-.3t.712.3L21.3 8.3q.15.15.212.325t.063.375t-.063.375t-.212.325l-3.6 3.6q-.3.3-.7.288t-.7-.313q-.275-.3-.288-.7t.288-.7z"/></svg>
         </Button>
     </div>
-    <div class="flex bg-surface-container p-5 rounded-2xl">
-        <input type="text" class="w-full font-bold text-xl" placeholder="XYZ" bind:value={to} />
+    <div class="relative">
+        <div class="flex bg-surface-container p-5 rounded-2xl">
+            <input
+                type="text"
+                class="w-full font-bold text-xl"
+                placeholder="XYZ"
+                bind:value={to}
+                oninput={onToInput}
+                onblur={() => setTimeout(() => (toSuggestions = []), 150)}
+            />
+        </div>
+        {#if toSuggestions.length > 0}
+            <ul class="absolute top-full left-0 right-0 mt-1 bg-surface-container-high rounded-2xl shadow-xl z-50 overflow-hidden">
+                {#each toSuggestions as airport}
+                    <li>
+                        <button
+                            class="w-full text-left px-4 py-3 hover:bg-surface-container-highest transition-colors"
+                            onmousedown={() => selectTo(airport)}
+                        >
+                            <span class="font-bold">{airport.code}</span>
+                            <span class="text-on-surface-variant ml-2 text-sm">{airport.city} – {airport.name}</span>
+                        </button>
+                    </li>
+                {/each}
+            </ul>
+        {/if}
     </div>
     <div class="flex mx-5">
         <FAB
