@@ -1,4 +1,8 @@
-# Clovis Flight API
+# Clovis Flights
+
+Install: [Latest Release](https://github.com/Cattn/clovis/releases/latest/)
+
+## API Documentation
 
 A REST API for searching Google Flights, built with ElysiaJS and Bun.
 
