@@ -2,19 +2,21 @@
     import { onMount } from 'svelte';
     import { fade, fly, scale } from 'svelte/transition';
     import { Button, FAB, DateField } from 'm3-svelte';
-    import { toYYYYMMDD, searchCheapestInPeriod, searchCheapestOneWayInPeriod, isCheapestResult, type CheapestResult } from '$lib/api/flights';
+    import {
+        toYYYYMMDD,
+        searchCheapestInPeriod,
+        searchCheapestOneWayInPeriod,
+        isCheapestResult,
+        formatFlightTime,
+        type CheapestResult,
+        type TimeFormatPreference
+    } from '$lib/api/flights';
     import type { OneWaySearchOptions, RoundTripSearchOptions } from '$lib/api/flights';
     import { searchAirports, type Airport } from '$lib/airports';
 
-    const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-
     async function openLink(url: string) {
-        if (isTauri) {
-            const { openUrl } = await import('@tauri-apps/plugin-opener');
-            await openUrl(url);
-        } else {
-            window.open(url, '_blank');
-        }
+        const { openUrl } = await import('@tauri-apps/plugin-opener');
+        await openUrl(url);
     }
 
     let from = $state('');
@@ -52,12 +54,68 @@
     let durationMode = $state<'exact' | 'plus-minus'>('exact');
     let durationVariation = $state(1);
     let preferredAirlines = $state<string[]>([]);
+    let timeFormat = $state<TimeFormatPreference>('24h');
     let filtersLoaded = $state(false);
 
     const airlineOptions = ['Delta', 'American', 'United', 'Southwest', 'JetBlue', 'Spirit', 'Frontier', 'Alaska'];
-    const FILTER_STORAGE_KEY = 'clovis.filters.v1';
+    let tauriInvoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null = null;
 
-    const timeOnly = (dateTime: string) => dateTime.split(' ')[1] ?? dateTime;
+    type PreferencesState = {
+        from: string;
+        to: string;
+        days: number;
+        departDate: string;
+        returnDate: string;
+        oneWay: boolean;
+        preferWeekends: boolean;
+        durationMode: 'exact' | 'plus-minus';
+        durationVariation: number;
+        preferredAirlines: string[];
+        timeFormat: TimeFormatPreference;
+    };
+
+    function currentPreferences(): PreferencesState {
+        return {
+            from,
+            to,
+            days,
+            departDate,
+            returnDate,
+            oneWay,
+            preferWeekends,
+            durationMode,
+            durationVariation,
+            preferredAirlines,
+            timeFormat
+        };
+    }
+
+    async function getTauriInvoke() {
+        if (tauriInvoke) return tauriInvoke;
+        const { invoke } = await import('@tauri-apps/api/core');
+        tauriInvoke = invoke;
+        return tauriInvoke;
+    }
+
+    async function loadSavedPreferences(): Promise<string | null> {
+        try {
+            const invoke = await getTauriInvoke();
+            const raw = await invoke?.('load_preferences');
+            if (typeof raw === 'string') return raw;
+        } catch (error) {
+            console.error('Error loading filters:', error);
+        }
+        return null;
+    }
+
+    async function persistPreferences(raw: string) {
+        try {
+            const invoke = await getTauriInvoke();
+            await invoke?.('save_preferences', { preferences: raw });
+        } catch (error) {
+            console.error('Error saving filters:', error);
+        }
+    }
 
     function togglePreferredAirline(airline: string) {
         preferredAirlines = preferredAirlines.includes(airline)
@@ -80,16 +138,29 @@
     }
 
     onMount(() => {
-        try {
-            const raw = localStorage.getItem(FILTER_STORAGE_KEY);
+        (async () => {
+            try {
+                const raw = await loadSavedPreferences();
             if (raw) {
                 const parsed = JSON.parse(raw) as {
+                    from?: string;
+                    to?: string;
+                    days?: number;
+                    departDate?: string;
+                    returnDate?: string;
                     oneWay?: boolean;
                     preferWeekends?: boolean;
                     durationMode?: 'exact' | 'plus-minus';
                     durationVariation?: number;
                     preferredAirlines?: string[];
+                    timeFormat?: TimeFormatPreference;
                 };
+                from = typeof parsed.from === 'string' ? parsed.from : '';
+                to = typeof parsed.to === 'string' ? parsed.to : '';
+                const parsedDays = Number(parsed.days);
+                days = Number.isFinite(parsedDays) ? Math.min(30, Math.max(1, Math.trunc(parsedDays))) : 5;
+                departDate = typeof parsed.departDate === 'string' ? parsed.departDate : '';
+                returnDate = typeof parsed.returnDate === 'string' ? parsed.returnDate : '';
                 oneWay = !!parsed.oneWay;
                 preferWeekends = !!parsed.preferWeekends;
                 durationMode = parsed.durationMode === 'plus-minus' ? 'plus-minus' : 'exact';
@@ -98,25 +169,19 @@
                 preferredAirlines = Array.isArray(parsed.preferredAirlines)
                     ? parsed.preferredAirlines.filter((airline) => airlineOptions.includes(airline))
                     : [];
+                timeFormat = parsed.timeFormat === '12h' ? '12h' : '24h';
             }
-        } catch {
-        } finally {
-            filtersLoaded = true;
-        }
+            } catch (e) {
+                console.error('Error loading filters:', e);
+            } finally {
+                filtersLoaded = true;
+            }
+        })();
     });
 
     $effect(() => {
         if (!filtersLoaded) return;
-        localStorage.setItem(
-            FILTER_STORAGE_KEY,
-            JSON.stringify({
-                oneWay,
-                preferWeekends,
-                durationMode,
-                durationVariation,
-                preferredAirlines
-            })
-        );
+        void persistPreferences(JSON.stringify(currentPreferences()));
     });
 
     function swapAirports() {
@@ -249,12 +314,29 @@
                     </div>
                 {/if}
                 <div class="rounded-2xl bg-surface-container-high p-4">
+                    <h3 class="font-bold text-on-surface">Time format</h3>
+                    <div class="mt-3 grid gap-3 sm:grid-cols-2">
+                        <button
+                            class={`rounded-xl border px-4 py-3 text-left ${timeFormat === '24h' ? 'border-primary bg-primary-container text-on-primary-container' : 'border-outline-variant bg-surface-container text-on-surface'}`}
+                            onclick={() => (timeFormat = '24h')}
+                        >
+                            24-hour
+                        </button>
+                        <button
+                            class={`rounded-xl border px-4 py-3 text-left ${timeFormat === '12h' ? 'border-primary bg-primary-container text-on-primary-container' : 'border-outline-variant bg-surface-container text-on-surface'}`}
+                            onclick={() => (timeFormat = '12h')}
+                        >
+                            12-hour
+                        </button>
+                    </div>
+                </div>
+                <div class="rounded-2xl bg-surface-container-high p-4">
                     <div class="mb-3">
                         <h3 class="font-bold text-on-surface">Preferred airlines</h3>
                         <p class="text-sm text-on-surface-variant">Selected airlines are shown first in one-way results.</p>
                     </div>
                     <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                        {#each airlineOptions as airline}
+                        {#each airlineOptions as airline (airline)}
                             <button
                                 class={`rounded-xl border px-3 py-2 text-sm font-semibold ${preferredAirlines.includes(airline) ? 'border-primary bg-secondary-container text-on-secondary-container' : 'border-outline-variant bg-surface text-on-surface'}`}
                                 onclick={() => togglePreferredAirline(airline)}
@@ -270,6 +352,7 @@
                         durationMode = 'exact';
                         durationVariation = 1;
                         preferredAirlines = [];
+                        timeFormat = '24h';
                     }}>
                         Reset
                     </Button>
@@ -296,7 +379,7 @@
         </div>
         {#if fromSuggestions.length > 0}
             <ul class="absolute top-full left-0 right-0 mt-1 bg-surface-container-high rounded-2xl shadow-xl z-50 overflow-hidden">
-                {#each fromSuggestions as airport}
+                {#each fromSuggestions as airport (airport.code)}
                     <li>
                         <button
                             class="w-full text-left px-4 py-3 hover:bg-surface-container-highest transition-colors"
@@ -328,7 +411,7 @@
         </div>
         {#if toSuggestions.length > 0}
             <ul class="absolute top-full left-0 right-0 mt-1 bg-surface-container-high rounded-2xl shadow-xl z-50 overflow-hidden">
-                {#each toSuggestions as airport}
+                {#each toSuggestions as airport (airport.code)}
                     <li>
                         <button
                             class="w-full text-left px-4 py-3 hover:bg-surface-container-highest transition-colors"
@@ -437,9 +520,9 @@
                         <div class="flex flex-col">
                             <span class="font-medium text-sm">
                                 {#if r.return}
-                                    {timeOnly(r.outbound.departureTime)} → {timeOnly(r.outbound.arrivalTime)} • {r.outbound.duration} --- {timeOnly(r.return.departureTime)} → {timeOnly(r.return.arrivalTime)} • {r.return.duration}
+                                    {formatFlightTime(r.outbound.departureTime, timeFormat)} → {formatFlightTime(r.outbound.arrivalTime, timeFormat)} • {r.outbound.duration} --- {formatFlightTime(r.return.departureTime, timeFormat)} → {formatFlightTime(r.return.arrivalTime, timeFormat)} • {r.return.duration}
                                 {:else}
-                                    {timeOnly(r.outbound.departureTime)} → {timeOnly(r.outbound.arrivalTime)} • {r.outbound.duration}
+                                    {formatFlightTime(r.outbound.departureTime, timeFormat)} → {formatFlightTime(r.outbound.arrivalTime, timeFormat)} • {r.outbound.duration}
                                 {/if}
                             </span>
                             <span class="text-secondary text-sm">{r.outbound.airline} {r.outbound.flightNumber}</span>

@@ -218,6 +218,24 @@ export interface OneWaySearchOptions {
 	onProgress?: (done: number, total: number) => void;
 }
 
+export type TimeFormatPreference = '24h' | '12h';
+
+export function formatFlightTime(
+	dateTime: string,
+	timeFormat: TimeFormatPreference = '24h'
+): string {
+	const raw = dateTime.split(' ')[1] ?? dateTime;
+	if (timeFormat === '24h') return raw;
+	const match = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+	if (!match) return raw;
+	const hour24 = Number(match[1]);
+	if (!Number.isFinite(hour24)) return raw;
+	const minute = match[2];
+	const suffix = hour24 >= 12 ? 'PM' : 'AM';
+	const hour12 = hour24 % 12 || 12;
+	return `${hour12}:${minute} ${suffix}`;
+}
+
 export async function searchCheapestInPeriod(
 	from: string,
 	to: string,
