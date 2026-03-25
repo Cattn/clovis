@@ -78,7 +78,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Clovis ${{ github.ref_name }}'
-          releaseBody: 'See the assets to download and install.'
+          releaseBody: "See the assets to download and install. If you're on windows, the best option is to download & run the -setup.exe"
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
