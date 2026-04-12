@@ -1,5 +1,5 @@
 import type { FlightResult, FlightSegment, Layover } from "../types/flight";
-import { formatTime, formatDuration } from "./format";
+import { formatTime, formatDuration, calculateLayoverDuration } from "./format";
 
 export function parseFlightResponse(rawText: string): FlightResult[] {
   const flights: FlightResult[] = [];
@@ -83,6 +83,27 @@ export function parseFlightResponse(rawText: string): FlightResult[] {
           });
         }
       }
+
+      const expectedStops = segments.length > 1 ? segments.length - 1 : layovers.length;
+      let normalizedLayovers = layovers;
+      if (segments.length > 1) {
+        normalizedLayovers = [];
+        for (let i = 0; i < segments.length - 1; i++) {
+          const current = segments[i];
+          const next = segments[i + 1];
+          if (!current || !next) continue;
+          normalizedLayovers.push({
+            airport: current.destination,
+            airportName: current.destinationName,
+            duration: calculateLayoverDuration(current.arrivalTime, next.departureTime),
+          });
+        }
+      }
+
+      const normalizedFlightNumbers =
+        segments.length > 0
+          ? Array.from(new Set(segments.map((segment) => segment.flightNumber).filter(Boolean)))
+          : Array.from(new Set(flightNumbers.filter(Boolean)));
       
       if (!airlineCode) {
         const airlinePatterns = [
@@ -118,17 +139,17 @@ export function parseFlightResponse(rawText: string): FlightResult[] {
         price,
         airline: airlineName,
         airlineCode,
-        flightNumber: flightNumbers.join(", "),
+        flightNumber: normalizedFlightNumbers.join(", "),
         origin,
         destination: dest,
         departureTime: `${depYear}-${depMonth.padStart(2, "0")}-${depDay.padStart(2, "0")} ${formatTime([parseInt(depHour), parseInt(depMin)])}`,
         arrivalTime: `${arrYear}-${arrMonth.padStart(2, "0")}-${arrDay.padStart(2, "0")} ${formatTime([parseInt(arrHour), parseInt(arrMin)])}`,
         duration: formatDuration(duration),
-        stops: Math.max(layovers.length, segments.length > 1 ? segments.length - 1 : 0),
+        stops: expectedStops,
         aircraft: "",
         token,
         segments,
-        layovers,
+        layovers: normalizedLayovers,
       });
     }
     

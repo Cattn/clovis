@@ -9,6 +9,7 @@
         isCheapestResult,
         formatFlightTime,
         type CheapestResult,
+        type FlightLeg,
         type TimeFormatPreference
     } from '$lib/api/flights';
     import type { OneWaySearchOptions, RoundTripSearchOptions } from '$lib/api/flights';
@@ -242,6 +243,17 @@
 
     function openFilters() {
         filtersOpen = true;
+    }
+
+    function stopLabel(stops: number) {
+        if (stops <= 0) return 'Nonstop';
+        if (stops === 1) return '1 stop';
+        return `${stops} stops`;
+    }
+
+    function layoverLabel(leg: FlightLeg) {
+        if (!leg.layovers.length) return 'No layovers';
+        return leg.layovers.map((layover) => `${layover.airport} ${layover.duration}`).join(' • ');
     }
 </script>
 
@@ -494,44 +506,60 @@
         <h2 class="font-semibold text-lg mb-2">Cheapest Options</h2>
         <ul class="space-y-2">
             {#each results as r, index (r.departDate + (r.returnDate ?? ''))}
-                <li class="grid grid-cols-[1fr_auto] bg-surface-container p-3 rounded-xl gap-y-2" in:fly={{ y: 14, duration: 260, delay: index * 45 }} out:fade={{ duration: 120 }}>
-                    <div class="flex items-center">
-                        <span class="font-bold">
+                <li class="bg-surface-container rounded-2xl px-3 py-2.5" in:fly={{ y: 14, duration: 260, delay: index * 45 }} out:fade={{ duration: 120 }}>
+                    <div class="flex items-center justify-between gap-3">
+                        <div class="font-bold leading-tight">
                             {#if r.returnDate}
                                 {r.departDate} → {r.returnDate}
                             {:else}
                                 {r.departDate}
                             {/if}
-                        </span>
-                    </div>
-                    <div class="flex items-center justify-center">
-                        <span class="font-semibold text-primary">
-                            {#if r.totalPrice === Infinity}
-                                —
-                            {:else}
-                                ${r.totalPrice}
-                            {/if}
-                        </span>
-                    </div>
-                    <div class="flex items-center mt-1 gap-2">
-                        <div class="bg-surface-container-highest p-3 rounded-2xl">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M20.2 11.825L6.2 15.6q-.65.175-1.263-.075t-.962-.825L1.7 10.9q-.275-.425-.087-.9t.687-.6l.575-.15q.25-.05.488-.012t.437.212l2.4 2l3.5-.925l-4.075-5.45q-.4-.525-.2-1.137t.85-.788l.525-.125q.275-.075.588-.025t.537.25L14.9 9.125l4.25-1.15q.8-.225 1.513.188t.937 1.212t-.187 1.513t-1.213.937M4 21q-.425 0-.712-.288T3 20t.288-.712T4 19h16q.425 0 .713.288T21 20t-.288.713T20 21z"/></svg>
                         </div>
-                        <div class="flex flex-col">
-                            <span class="font-medium text-sm">
-                                {#if r.return}
-                                    {formatFlightTime(r.outbound.departureTime, timeFormat)} → {formatFlightTime(r.outbound.arrivalTime, timeFormat)} • {r.outbound.duration} --- {formatFlightTime(r.return.departureTime, timeFormat)} → {formatFlightTime(r.return.arrivalTime, timeFormat)} • {r.return.duration}
+                        <div class="flex items-center gap-1">
+                            <span class="font-semibold text-primary text-lg">
+                                {#if r.totalPrice === Infinity}
+                                    —
                                 {:else}
-                                    {formatFlightTime(r.outbound.departureTime, timeFormat)} → {formatFlightTime(r.outbound.arrivalTime, timeFormat)} • {r.outbound.duration}
+                                    ${r.totalPrice}
                                 {/if}
                             </span>
-                            <span class="text-secondary text-sm">{r.outbound.airline} {r.outbound.flightNumber}</span>
+                            <Button variant="text" square onclick={() => openLink(r.searchUrl)}>
+                                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24"><path fill="currentColor" d="M5 21q-.825 0-1.412-.587T3 19V5q0-.825.588-1.412T5 3h7v2H5v14h14v-7h2v7q0 .825-.587 1.413T19 21zm4.7-5.3l-1.4-1.4L17.6 5H14V3h7v7h-2V6.4z"/></svg>
+                            </Button>
                         </div>
                     </div>
-                    <div class="flex items-center justify-center button-mod2">
-                        <Button variant="outlined" onclick={() => openLink(r.searchUrl)}>
-                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="currentColor" d="M5 21q-.825 0-1.412-.587T3 19V5q0-.825.588-1.412T5 3h7v2H5v14h14v-7h2v7q0 .825-.587 1.413T19 21zm4.7-5.3l-1.4-1.4L17.6 5H14V3h7v7h-2V6.4z"/></svg>
-                        </Button>
+                    <div class="mt-1.5 rounded-xl bg-surface-container-high px-3 py-2">
+                        <div class="py-1.5">
+                            <div class="flex items-center justify-between gap-3">
+                                <span class="font-medium text-sm">{formatFlightTime(r.outbound.departureTime, timeFormat)} → {formatFlightTime(r.outbound.arrivalTime, timeFormat)}</span>
+                                <span class="text-sm text-on-surface-variant">{r.outbound.duration}</span>
+                            </div>
+                            <div class="mt-0.5 flex items-center justify-between gap-3 text-sm">
+                                <span>{r.outbound.origin} → {r.outbound.destination}</span>
+                                <span class="text-on-surface-variant">{stopLabel(r.outbound.stops)}</span>
+                            </div>
+                            <div class="mt-0.5 text-sm text-secondary">{r.outbound.airline} {r.outbound.flightNumber}</div>
+                            {#if r.outbound.stops > 0}
+                                <div class="mt-0.5 text-xs text-on-surface-variant">{layoverLabel(r.outbound)}</div>
+                            {/if}
+                        </div>
+                        {#if r.return}
+                            <div class="my-1 border-t border-outline-variant/40"></div>
+                            <div class="py-1.5">
+                                <div class="flex items-center justify-between gap-3">
+                                    <span class="font-medium text-sm">{formatFlightTime(r.return.departureTime, timeFormat)} → {formatFlightTime(r.return.arrivalTime, timeFormat)}</span>
+                                    <span class="text-sm text-on-surface-variant">{r.return.duration}</span>
+                                </div>
+                                <div class="mt-0.5 flex items-center justify-between gap-3 text-sm">
+                                    <span>{r.return.origin} → {r.return.destination}</span>
+                                    <span class="text-on-surface-variant">{stopLabel(r.return.stops)}</span>
+                                </div>
+                                <div class="mt-0.5 text-sm text-secondary">{r.return.airline} {r.return.flightNumber}</div>
+                                {#if r.return.stops > 0}
+                                    <div class="mt-0.5 text-xs text-on-surface-variant">{layoverLabel(r.return)}</div>
+                                {/if}
+                            </div>
+                        {/if}
                     </div>
                 </li>
             {/each}
