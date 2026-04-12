@@ -2,7 +2,7 @@ import { Elysia, t } from "elysia";
 import type { FlightResult } from "../../types/flight";
 import { getFlightTokens, RPC_ENDPOINT } from "../../utils/token";
 import { parseFlightResponse } from "../../utils/parser";
-import { formatDate } from "../../utils/format";
+import { formatDate, parseAirportCodes } from "../../utils/format";
 
 const getSignal = () => AbortSignal.timeout(10000);
 
@@ -18,10 +18,27 @@ export const searchRoutes = new Elysia({ prefix: "/flights/search" })
     }
 
     try {
+      const fromAirports = parseAirportCodes(from);
+      if (fromAirports.length === 0) {
+        return {
+          success: false,
+          error: "Invalid 'from' value. Use one or more 3-letter airport codes (comma-separated).",
+        };
+      }
+      const toAirport = to.trim().toUpperCase();
+      if (!/^[A-Z]{3}$/.test(toAirport)) {
+        return {
+          success: false,
+          error: "Invalid 'to' value. Use a 3-letter airport code.",
+        };
+      }
+
       const tokens = await getFlightTokens();
       
       const departureDate = departDate || formatDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
       const returnDateStr = returnDate || formatDate(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000));
+      const fromPayload = [fromAirports.map((code) => [code, 0])];
+      const toPayload = [[[toAirport, 0]]];
 
       const url = new URL(RPC_ENDPOINT);
       url.searchParams.set("f.sid", tokens.sid);
@@ -51,8 +68,8 @@ export const searchRoutes = new Elysia({ prefix: "/flights/search" })
           null,
           [
             [
-              [[[from.toUpperCase(), 0]]],
-              [[[to.toUpperCase(), 0]]],
+              fromPayload,
+              toPayload,
               null,
               0,
               null,
@@ -68,8 +85,8 @@ export const searchRoutes = new Elysia({ prefix: "/flights/search" })
               3
             ],
             [
-              [[[to.toUpperCase(), 0]]],
-              [[[from.toUpperCase(), 0]]],
+              toPayload,
+              fromPayload,
               null,
               0,
               null,
@@ -128,8 +145,8 @@ export const searchRoutes = new Elysia({ prefix: "/flights/search" })
       return {
         success: true,
         data: {
-          from: from.toUpperCase(),
-          to: to.toUpperCase(),
+          from: fromAirports.join(","),
+          to: toAirport,
           departDate: departureDate,
           returnDate: returnDateStr,
           flights,
