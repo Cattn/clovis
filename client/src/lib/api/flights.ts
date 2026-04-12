@@ -167,10 +167,14 @@ export async function fetchCheapest(
 		departDate,
 		returnDate
 	});
-	const res = await fetch(`${API_BASE}/flights/cheapest?${params}`);
-	const json = await res.json();
-	if (!res.ok) return { success: false, error: json?.error ?? res.statusText };
-	return json;
+	try {
+		const res = await fetch(`${API_BASE}/flights/cheapest?${params}`);
+		const json = await res.json();
+		if (!res.ok) return { success: false, error: json?.error ?? res.statusText };
+		return json;
+	} catch (error) {
+		return { success: false, error: error instanceof Error ? error.message : 'Request failed' };
+	}
 }
 
 export async function fetchCheapestOneWay(
@@ -183,10 +187,14 @@ export async function fetchCheapestOneWay(
 		to: to.trim().toUpperCase(),
 		departDate
 	});
-	const res = await fetch(`${API_BASE}/flights/cheapest/oneWay?${params}`);
-	const json = await res.json();
-	if (!res.ok) return { success: false, error: json?.error ?? res.statusText };
-	return json;
+	try {
+		const res = await fetch(`${API_BASE}/flights/cheapest/oneWay?${params}`);
+		const json = await res.json();
+		if (!res.ok) return { success: false, error: json?.error ?? res.statusText };
+		return json;
+	} catch (error) {
+		return { success: false, error: error instanceof Error ? error.message : 'Request failed' };
+	}
 }
 
 export type PeriodSearchError = {

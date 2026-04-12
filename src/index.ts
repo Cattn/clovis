@@ -60,6 +60,7 @@ if (hasClientDist) {
 app = app.listen({
     hostname: "127.0.0.1",
     port,
+    idleTimeout: 120,
   });
 
 console.log(`🦊 Clovis API is running at http://127.0.0.1:${port}`);

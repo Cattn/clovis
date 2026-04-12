@@ -24,9 +24,43 @@
     let to = $state('');
     let fromSuggestions = $state<Airport[]>([]);
     let toSuggestions = $state<Airport[]>([]);
+    let fromInputEl: HTMLInputElement | null = null;
+
+    function focusFromInputEnd() {
+        queueMicrotask(() => {
+            if (!fromInputEl) return;
+            fromInputEl.focus();
+            const end = fromInputEl.value.length;
+            fromInputEl.setSelectionRange(end, end);
+        });
+    }
+
+    function parseFromCodes(value: string): string[] {
+        return value
+            .split(',')
+            .map((part) => part.trim().toUpperCase())
+            .filter((code) => /^[A-Z]{3}$/.test(code));
+    }
 
     function onFromInput(e: Event) {
-        fromSuggestions = searchAirports((e.target as HTMLInputElement).value);
+        const raw = (e.target as HTMLInputElement).value;
+        const parts = raw.split(',');
+        const query = (parts[parts.length - 1] ?? '').trim();
+        if (!query) {
+            fromSuggestions = [];
+            return;
+        }
+        const selected = new Set(parseFromCodes(parts.slice(0, -1).join(',')));
+        fromSuggestions = searchAirports(query).filter((airport) => !selected.has(airport.code));
+    }
+
+    function onFromKeydown(e: KeyboardEvent) {
+        if (e.key === 'Enter' && fromSuggestions.length > 0) {
+            e.preventDefault();
+            const topSuggestion = fromSuggestions[0];
+            if (!topSuggestion) return;
+            selectFrom(topSuggestion);
+        }
     }
 
     function onToInput(e: Event) {
@@ -34,8 +68,13 @@
     }
 
     function selectFrom(airport: Airport) {
-        from = airport.code;
+        const parts = from.split(',');
+        const selected = parseFromCodes(parts.slice(0, -1).join(','));
+        const deduped = new Set(selected);
+        if (!deduped.has(airport.code)) selected.push(airport.code);
+        from = `${selected.join(', ')}, `;
         fromSuggestions = [];
+        focusFromInputEnd();
     }
 
     function selectTo(airport: Airport) {
@@ -383,9 +422,11 @@
             <input
                 type="text"
                 class="w-full font-bold text-xl"
-                placeholder="XYZ"
+                placeholder="XYZ, ABC"
                 bind:value={from}
+                bind:this={fromInputEl}
                 oninput={onFromInput}
+                onkeydown={onFromKeydown}
                 onblur={() => setTimeout(() => (fromSuggestions = []), 150)}
             />
         </div>
@@ -395,7 +436,10 @@
                     <li>
                         <button
                             class="w-full text-left px-4 py-3 hover:bg-surface-container-highest transition-colors"
-                            onmousedown={() => selectFrom(airport)}
+                            onmousedown={(e) => {
+                                e.preventDefault();
+                                selectFrom(airport);
+                            }}
                         >
                             <span class="font-bold">{airport.code}</span>
                             <span class="text-on-surface-variant ml-2 text-sm">{airport.city} – {airport.name}</span>
