@@ -2,7 +2,7 @@ import { Elysia, t } from "elysia";
 import type { FlightResult } from "../../types/flight";
 import { getFlightTokens, RPC_ENDPOINT } from "../../utils/token";
 import { parseFlightResponse } from "../../utils/parser";
-import { formatDate } from "../../utils/format";
+import { formatDate, parseAirportCodes } from "../../utils/format";
 
 const getSignal = () => AbortSignal.timeout(15000);
 
@@ -52,9 +52,11 @@ function loc(code: string): Uint8Array {
   return concat(fVarint(1, 1n), fStr(2, code));
 }
 
-function leg(params: { date: string; origin: string; dest: string }): Uint8Array {
+function leg(params: { date: string; origins: string[]; dest: string }): Uint8Array {
   const parts: Uint8Array[] = [fStr(2, params.date)];
-  parts.push(fBytes(13, loc(params.origin)));
+  for (const origin of params.origins) {
+    parts.push(fBytes(13, loc(origin)));
+  }
   parts.push(fBytes(14, loc(params.dest)));
   return concat(...parts);
 }
@@ -70,7 +72,7 @@ function buildTfuFromOutboundToken(outboundToken: string): string {
 
 async function fetchOneWayFlights(
   tokens: { sid: string; bl: string },
-  from: string,
+  fromAirports: string[],
   to: string,
   departureDate: string
 ): Promise<FlightResult[]> {
@@ -84,6 +86,9 @@ async function fetchOneWayFlights(
   url.searchParams.set("soc-device", "1");
   url.searchParams.set("_reqid", String(Math.floor(Math.random() * 900000) + 100000));
   url.searchParams.set("rt", "c");
+
+  const fromPayload = [fromAirports.map((code) => [code, 0])];
+  const toPayload = [[[to, 0]]];
 
   const innerPayload = [
     [],
@@ -103,8 +108,8 @@ async function fetchOneWayFlights(
       null,
       [
         [
-          [[[from, 0]]],
-          [[[to, 0]]],
+          fromPayload,
+          toPayload,
           null,
           0,
           null,
@@ -148,7 +153,7 @@ async function fetchOneWayFlights(
   return parseFlightResponse(cleanJson);
 }
 
-function buildTfsOneWaySearch(opts: { date: string; origin: string; dest: string }): string {
+function buildTfsOneWaySearch(opts: { date: string; origins: string[]; dest: string }): string {
   const maxU64 = (1n << 64n) - 1n;
   const msg = concat(
     fVarint(1, 28n),
@@ -163,17 +168,17 @@ function buildTfsOneWaySearch(opts: { date: string; origin: string; dest: string
   return base64url(msg);
 }
 
-function buildSearchUrl(from: string, to: string, departDate: string): string {
+function buildSearchUrl(fromAirports: string[], to: string, departDate: string): string {
   const u = new URL("https://www.google.com/travel/flights/search");
-  u.searchParams.set("tfs", buildTfsOneWaySearch({ date: departDate, origin: from, dest: to }));
+  u.searchParams.set("tfs", buildTfsOneWaySearch({ date: departDate, origins: fromAirports, dest: to }));
   u.searchParams.set("hl", "en-US");
   u.searchParams.set("gl", "US");
   u.searchParams.set("curr", "USD");
   return u.toString();
 }
 
-function buildSelectedSearchUrl(from: string, to: string, departDate: string, outboundToken: string): string {
-  const u = new URL(buildSearchUrl(from, to, departDate));
+function buildSelectedSearchUrl(fromAirports: string[], to: string, departDate: string, outboundToken: string): string {
+  const u = new URL(buildSearchUrl(fromAirports, to, departDate));
   u.searchParams.set("tfu", buildTfuFromOutboundToken(outboundToken));
   return u.toString();
 }
@@ -189,26 +194,33 @@ export const cheapestOneWayRoutes = new Elysia({ prefix: "/flights/cheapest" })
       }
 
       try {
+        const fromAirports = parseAirportCodes(from);
+        if (fromAirports.length === 0) {
+          return { success: false, error: "Invalid 'from' value. Use one or more 3-letter airport codes (comma-separated)." };
+        }
+        const toAirport = to.trim().toUpperCase();
+        if (!/^[A-Z]{3}$/.test(toAirport)) {
+          return { success: false, error: "Invalid 'to' value. Use a 3-letter airport code." };
+        }
+
         const tokens = await getFlightTokens();
         const departureDate = departDate || formatDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
-        const FROM = from.toUpperCase();
-        const TO = to.toUpperCase();
 
-        const flights = await fetchOneWayFlights(tokens, FROM, TO, departureDate);
+        const flights = await fetchOneWayFlights(tokens, fromAirports, toAirport, departureDate);
         if (flights.length === 0) return { success: false, error: "No flights found" };
 
         const cheapestOutbound = flights[0]!;
         const totalPrice = cheapestOutbound.price;
-        const searchUrl = buildSearchUrl(FROM, TO, departureDate);
+        const searchUrl = buildSearchUrl(fromAirports, toAirport, departureDate);
         const bookingUrl = cheapestOutbound.token
-          ? buildSelectedSearchUrl(FROM, TO, departureDate, cheapestOutbound.token)
+          ? buildSelectedSearchUrl(fromAirports, toAirport, departureDate, cheapestOutbound.token)
           : null;
 
         return {
           success: true,
           data: {
-            from: FROM,
-            to: TO,
+            from: fromAirports.join(","),
+            to: toAirport,
             departDate: departureDate,
             totalPrice,
             bookingUrl,

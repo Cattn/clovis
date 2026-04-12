@@ -39,3 +39,15 @@ export function getTimestamp(): string {
   const now = new Date();
   return now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
 }
+
+export function parseAirportCodes(value: string): string[] {
+  const raw = (value || "").trim();
+  if (!raw) return [];
+
+  const codes = raw
+    .split(",")
+    .map((part) => part.trim().toUpperCase())
+    .filter((code) => /^[A-Z]{3}$/.test(code));
+
+  return Array.from(new Set(codes));
+}

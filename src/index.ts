@@ -36,10 +36,10 @@ let app = new Elysia({ adapter: node() })
     version: "1.0.0",
     endpoints: [
       "GET /token - Get fresh authentication tokens",
-      "GET /flights/search/roundTrip?from=XXX&to=XXX - Search round-trip flights (all results)",
-      "GET /flights/cheapest?from=XXX&to=XXX - Get cheapest round-trip pair",
-      "GET /flights/cheapest/oneWay?from=XXX&to=XXX&departDate=YYYY-MM-DD - Cheapest one-way",
-      "GET /flights/search/oneWay?from=XXX&to=XXX&departDate=YYYY-MM-DD - One-way flights",
+      "GET /flights/search/roundTrip?from=XXX[,YYY]&to=XXX - Search round-trip flights (all results)",
+      "GET /flights/cheapest?from=XXX[,YYY]&to=XXX - Get cheapest round-trip pair",
+      "GET /flights/cheapest/oneWay?from=XXX[,YYY]&to=XXX&departDate=YYYY-MM-DD - Cheapest one-way",
+      "GET /flights/search/oneWay?from=XXX[,YYY]&to=XXX&departDate=YYYY-MM-DD - One-way flights",
       "POST /flights/return - Search return flights with selected outbound token",
     ],
   }))

@@ -2,7 +2,7 @@ import { Elysia, t } from "elysia";
 import type { FlightResult } from "../../types/flight";
 import { getFlightTokens, RPC_ENDPOINT } from "../../utils/token";
 import { parseFlightResponse } from "../../utils/parser";
-import { formatDate } from "../../utils/format";
+import { formatDate, parseAirportCodes } from "../../utils/format";
 
 const getSignal = () => AbortSignal.timeout(10000);
 
@@ -129,6 +129,17 @@ function leg(params: {
   return concat(...parts);
 }
 
+function legSearch(params: { date: string; origins: string[]; destinations: string[] }): Uint8Array {
+  const parts: Uint8Array[] = [fStr(2, params.date)];
+  for (const origin of params.origins) {
+    parts.push(fBytes(13, loc(origin)));
+  }
+  for (const destination of params.destinations) {
+    parts.push(fBytes(14, loc(destination)));
+  }
+  return concat(...parts);
+}
+
 function buildTfsRoundTripSelected(opts: {
   outbound: { date: string; origin: string; dest: string; airlineCode: string; flightNumber: string };
   inbound: { date: string; origin: string; dest: string; airlineCode: string; flightNumber: string };
@@ -140,6 +151,29 @@ function buildTfsRoundTripSelected(opts: {
     fVarint(2, 2n),
     fBytes(3, leg(opts.outbound)),
     fBytes(3, leg(opts.inbound)),
+    fVarint(8, 1n),
+    fVarint(9, 1n),
+    fVarint(14, 1n),
+    fBytes(16, fVarint(1, maxU64)),
+    fVarint(19, 1n)
+  );
+
+  return base64url(msg);
+}
+
+function buildTfsRoundTripSearch(opts: {
+  departDate: string;
+  returnDate: string;
+  fromAirports: string[];
+  toAirports: string[];
+}): string {
+  const maxU64 = (1n << 64n) - 1n;
+
+  const msg = concat(
+    fVarint(1, 28n),
+    fVarint(2, 2n),
+    fBytes(3, legSearch({ date: opts.departDate, origins: opts.fromAirports, destinations: opts.toAirports })),
+    fBytes(3, legSearch({ date: opts.returnDate, origins: opts.toAirports, destinations: opts.fromAirports })),
     fVarint(8, 1n),
     fVarint(9, 1n),
     fVarint(14, 1n),
@@ -171,11 +205,15 @@ function buildBookingUrlFromTfs(tfs: string): string {
   return u.toString();
 }
 
-function buildSearchUrl(from: string, to: string, departDate: string, returnDate: string): string {
-  // Stable, always loads. Google will convert it internally to tfs/tfu.
-  const q = `Flights from ${from} to ${to} on ${departDate} returning ${returnDate}`;
+function buildSearchUrl(fromAirports: string[], toAirport: string, departDate: string, returnDate: string): string {
+  const tfs = buildTfsRoundTripSearch({
+    departDate,
+    returnDate,
+    fromAirports,
+    toAirports: [toAirport],
+  });
   const u = new URL("https://www.google.com/travel/flights/search");
-  u.searchParams.set("q", q);
+  u.searchParams.set("tfs", tfs);
   u.searchParams.set("hl", "en-US");
   u.searchParams.set("gl", "US");
   u.searchParams.set("curr", "USD");
@@ -186,7 +224,7 @@ function buildSearchUrl(from: string, to: string, departDate: string, returnDate
 
 async function fetchFlights(
   tokens: { sid: string; bl: string },
-  from: string,
+  fromAirports: string[],
   to: string,
   departureDate: string,
   returnDateStr: string
@@ -201,13 +239,16 @@ async function fetchFlights(
   url.searchParams.set("_reqid", String(Math.floor(Math.random() * 900000) + 100000));
   url.searchParams.set("rt", "c");
 
+  const fromPayload = [fromAirports.map((code) => [code, 0])];
+  const toPayload = [[[to, 0]]];
+
   const innerPayload = [
     [],
     [
       null, null, 1, null, [], 1, [1, 0, 0, 0], null, null, null, null, null, null,
       [
-        [[[[from, 0]]], [[[to, 0]]], null, 0, null, null, departureDate, null, null, null, null, null, null, null, 3],
-        [[[[to, 0]]], [[[from, 0]]], null, 0, null, null, returnDateStr, null, null, null, null, null, null, null, 3]
+        [fromPayload, toPayload, null, 0, null, null, departureDate, null, null, null, null, null, null, null, 3],
+        [toPayload, fromPayload, null, 0, null, null, returnDateStr, null, null, null, null, null, null, null, 3]
       ],
       null, null, null, 1
     ],
@@ -311,15 +352,21 @@ export const cheapestRoutes = new Elysia({ prefix: "/flights" })
       }
 
       try {
+        const fromAirports = parseAirportCodes(from);
+        if (fromAirports.length === 0) {
+          return { success: false, error: "Invalid 'from' value. Use one or more 3-letter airport codes (comma-separated)." };
+        }
+        const toAirport = to.trim().toUpperCase();
+        if (!/^[A-Z]{3}$/.test(toAirport)) {
+          return { success: false, error: "Invalid 'to' value. Use a 3-letter airport code." };
+        }
+
         const tokens = await getFlightTokens();
 
         const departureDate = departDate || formatDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
         const returnDateStr = returnDate || formatDate(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000));
 
-        const FROM = from.toUpperCase();
-        const TO = to.toUpperCase();
-
-        const outboundFlights = await fetchFlights(tokens, FROM, TO, departureDate, returnDateStr);
+        const outboundFlights = await fetchFlights(tokens, fromAirports, toAirport, departureDate, returnDateStr);
         if (outboundFlights.length === 0) return { success: false, error: "No outbound flights found" };
 
         const cheapestOutbound = outboundFlights[0]!;
@@ -327,7 +374,7 @@ export const cheapestRoutes = new Elysia({ prefix: "/flights" })
           return { success: false, error: "No booking token found for cheapest outbound flight" };
         }
 
-        const returnFlights = await fetchReturnFlights(tokens, cheapestOutbound.token, TO, FROM, returnDateStr);
+        const returnFlights = await fetchReturnFlights(tokens, cheapestOutbound.token, toAirport, cheapestOutbound.origin, returnDateStr);
         if (returnFlights.length === 0) return { success: false, error: "No return flights found" };
 
         const cheapestReturn = returnFlights[0]!;
@@ -343,15 +390,15 @@ export const cheapestRoutes = new Elysia({ prefix: "/flights" })
           const tfs = buildTfsRoundTripSelected({
             outbound: {
               date: departureDate,
-              origin: FROM,
-              dest: TO,
+              origin: cheapestOutbound.origin,
+              dest: cheapestOutbound.destination,
               airlineCode: outSel.airlineCode,
               flightNumber: outSel.flightNo,
             },
             inbound: {
               date: returnDateStr,
-              origin: TO,
-              dest: FROM,
+              origin: cheapestReturn.origin,
+              dest: cheapestReturn.destination,
               airlineCode: inSel.airlineCode,
               flightNumber: inSel.flightNo,
             },
@@ -359,13 +406,13 @@ export const cheapestRoutes = new Elysia({ prefix: "/flights" })
           bookingUrl = buildBookingUrlFromTfs(tfs);
         }
 
-        const searchUrl = buildSearchUrl(FROM, TO, departureDate, returnDateStr);
+        const searchUrl = buildSearchUrl(fromAirports, toAirport, departureDate, returnDateStr);
 
         return {
           success: true,
           data: {
-            from: FROM,
-            to: TO,
+            from: fromAirports.join(","),
+            to: toAirport,
             departDate: departureDate,
             returnDate: returnDateStr,
             totalPrice,
