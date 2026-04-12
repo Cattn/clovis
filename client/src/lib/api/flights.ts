@@ -12,6 +12,8 @@ const API_BASE =
 			: 'http://localhost:3000';
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const DEFAULT_SEARCH_CONCURRENCY = 3;
+const MAX_SEARCH_CONCURRENCY = 8;
 
 export function toYYYYMMDD(d: Date | string | unknown): string {
 	if (d == null || d === '') return '';
@@ -211,11 +213,40 @@ export interface RoundTripSearchOptions {
 	preferWeekends?: boolean;
 	durationMode?: 'exact' | 'plus-minus';
 	durationVariation?: number;
+	concurrency?: number;
 	onProgress?: (done: number, total: number) => void;
 }
 
 export interface OneWaySearchOptions {
+	concurrency?: number;
 	onProgress?: (done: number, total: number) => void;
+}
+
+function normalizeConcurrency(value?: number): number {
+	const raw = Math.trunc(value ?? DEFAULT_SEARCH_CONCURRENCY);
+	if (!Number.isFinite(raw)) return DEFAULT_SEARCH_CONCURRENCY;
+	return Math.min(MAX_SEARCH_CONCURRENCY, Math.max(1, raw));
+}
+
+async function runWithConcurrency<TItem, TResult>(
+	items: TItem[],
+	concurrency: number,
+	runItem: (item: TItem, index: number) => Promise<TResult>
+): Promise<TResult[]> {
+	if (items.length === 0) return [];
+	const results = new Array<TResult>(items.length);
+	let nextIndex = 0;
+	const workerCount = Math.min(concurrency, items.length);
+	const workers = Array.from({ length: workerCount }, async () => {
+		while (true) {
+			const index = nextIndex;
+			nextIndex++;
+			if (index >= items.length) return;
+			results[index] = await runItem(items[index] as TItem, index);
+		}
+	});
+	await Promise.all(workers);
+	return results;
 }
 
 export type TimeFormatPreference = '24h' | '12h';
@@ -258,15 +289,15 @@ export async function searchCheapestInPeriod(
 		)
 	);
 	if (pairs.length === 0) return [];
-	const results: PeriodSearchResult[] = [];
+	const concurrency = normalizeConcurrency(options.concurrency);
 	let done = 0;
 	options.onProgress?.(done, pairs.length);
-	for (const { departDate, returnDate } of pairs) {
+	const results = await runWithConcurrency(pairs, concurrency, async ({ departDate, returnDate }) => {
 		const r = await fetchCheapest(from, to, departDate, returnDate);
-		results.push(r.success ? r.data : { departDate, returnDate, totalPrice: Infinity, error: r.error });
 		done++;
 		options.onProgress?.(done, pairs.length);
-	}
+		return r.success ? r.data : { departDate, returnDate, totalPrice: Infinity, error: r.error };
+	});
 	results.sort(
 		(a, b) =>
 			(a.totalPrice === Infinity ? Number.MAX_SAFE_INTEGER : a.totalPrice) -
@@ -284,15 +315,15 @@ export async function searchCheapestOneWayInPeriod(
 ): Promise<OneWayPeriodSearchResult[]> {
 	const dates = getOneWayDatesInPeriod(periodStart, periodEnd);
 	if (dates.length === 0) return [];
-	const results: OneWayPeriodSearchResult[] = [];
+	const concurrency = normalizeConcurrency(options.concurrency);
 	let done = 0;
 	options.onProgress?.(done, dates.length);
-	for (const departDate of dates) {
+	const results = await runWithConcurrency(dates, concurrency, async (departDate) => {
 		const r = await fetchCheapestOneWay(from, to, departDate);
-		results.push(r.success ? r.data : { departDate, totalPrice: Infinity, error: r.error });
 		done++;
 		options.onProgress?.(done, dates.length);
-	}
+		return r.success ? r.data : { departDate, totalPrice: Infinity, error: r.error };
+	});
 	results.sort(
 		(a, b) =>
 			(a.totalPrice === Infinity ? 1 : a.totalPrice) -
