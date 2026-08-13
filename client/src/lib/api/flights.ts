@@ -155,11 +155,16 @@ export interface CheapestResult {
 	return: FlightLeg | null;
 }
 
+function isAbortError(error: unknown): boolean {
+	return error instanceof Error && error.name === 'AbortError';
+}
+
 export async function fetchCheapest(
 	from: string,
 	to: string,
 	departDate: string,
-	returnDate: string
+	returnDate: string,
+	signal?: AbortSignal
 ): Promise<{ success: true; data: CheapestResult } | { success: false; error: string }> {
 	const params = new URLSearchParams({
 		from: from.trim().toUpperCase(),
@@ -168,11 +173,12 @@ export async function fetchCheapest(
 		returnDate
 	});
 	try {
-		const res = await fetch(`${API_BASE}/flights/cheapest?${params}`);
+		const res = await fetch(`${API_BASE}/flights/cheapest?${params}`, { signal });
 		const json = await res.json();
 		if (!res.ok) return { success: false, error: json?.error ?? res.statusText };
 		return json;
 	} catch (error) {
+		if (isAbortError(error)) throw error;
 		return { success: false, error: error instanceof Error ? error.message : 'Request failed' };
 	}
 }
@@ -180,7 +186,8 @@ export async function fetchCheapest(
 export async function fetchCheapestOneWay(
 	from: string,
 	to: string,
-	departDate: string
+	departDate: string,
+	signal?: AbortSignal
 ): Promise<{ success: true; data: CheapestResult } | { success: false; error: string }> {
 	const params = new URLSearchParams({
 		from: from.trim().toUpperCase(),
@@ -188,11 +195,12 @@ export async function fetchCheapestOneWay(
 		departDate
 	});
 	try {
-		const res = await fetch(`${API_BASE}/flights/cheapest/oneWay?${params}`);
+		const res = await fetch(`${API_BASE}/flights/cheapest/oneWay?${params}`, { signal });
 		const json = await res.json();
 		if (!res.ok) return { success: false, error: json?.error ?? res.statusText };
 		return json;
 	} catch (error) {
+		if (isAbortError(error)) throw error;
 		return { success: false, error: error instanceof Error ? error.message : 'Request failed' };
 	}
 }
@@ -222,11 +230,13 @@ export interface RoundTripSearchOptions {
 	durationMode?: 'exact' | 'plus-minus';
 	durationVariation?: number;
 	concurrency?: number;
+	signal?: AbortSignal;
 	onProgress?: (done: number, total: number) => void;
 }
 
 export interface OneWaySearchOptions {
 	concurrency?: number;
+	signal?: AbortSignal;
 	onProgress?: (done: number, total: number) => void;
 }
 
@@ -239,14 +249,17 @@ function normalizeConcurrency(value?: number): number {
 async function runWithConcurrency<TItem, TResult>(
 	items: TItem[],
 	concurrency: number,
-	runItem: (item: TItem, index: number) => Promise<TResult>
+	runItem: (item: TItem, index: number) => Promise<TResult>,
+	signal?: AbortSignal
 ): Promise<TResult[]> {
 	if (items.length === 0) return [];
+	if (signal?.aborted) throw new DOMException('The operation was aborted.', 'AbortError');
 	const results = new Array<TResult>(items.length);
 	let nextIndex = 0;
 	const workerCount = Math.min(concurrency, items.length);
 	const workers = Array.from({ length: workerCount }, async () => {
 		while (true) {
+			if (signal?.aborted) throw new DOMException('The operation was aborted.', 'AbortError');
 			const index = nextIndex;
 			nextIndex++;
 			if (index >= items.length) return;
@@ -301,11 +314,11 @@ export async function searchCheapestInPeriod(
 	let done = 0;
 	options.onProgress?.(done, pairs.length);
 	const results = await runWithConcurrency(pairs, concurrency, async ({ departDate, returnDate }) => {
-		const r = await fetchCheapest(from, to, departDate, returnDate);
+		const r = await fetchCheapest(from, to, departDate, returnDate, options.signal);
 		done++;
 		options.onProgress?.(done, pairs.length);
 		return r.success ? r.data : { departDate, returnDate, totalPrice: Infinity, error: r.error };
-	});
+	}, options.signal);
 	results.sort(
 		(a, b) =>
 			(a.totalPrice === Infinity ? Number.MAX_SAFE_INTEGER : a.totalPrice) -
@@ -327,11 +340,11 @@ export async function searchCheapestOneWayInPeriod(
 	let done = 0;
 	options.onProgress?.(done, dates.length);
 	const results = await runWithConcurrency(dates, concurrency, async (departDate) => {
-		const r = await fetchCheapestOneWay(from, to, departDate);
+		const r = await fetchCheapestOneWay(from, to, departDate, options.signal);
 		done++;
 		options.onProgress?.(done, dates.length);
 		return r.success ? r.data : { departDate, totalPrice: Infinity, error: r.error };
-	});
+	}, options.signal);
 	results.sort(
 		(a, b) =>
 			(a.totalPrice === Infinity ? 1 : a.totalPrice) -

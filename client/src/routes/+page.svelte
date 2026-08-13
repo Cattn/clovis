@@ -89,6 +89,7 @@
     let searchProgress = $state<{ done: number; total: number } | null>(null);
     let error = $state('');
     let results = $state<CheapestResult[]>([]);
+    let searchAbort: AbortController | null = null;
     let filtersOpen = $state(false);
     let preferWeekends = $state(false);
     let durationMode = $state<'exact' | 'plus-minus'>('exact');
@@ -230,7 +231,19 @@
         to = previousFrom;
     }
 
+    function cancelSearch() {
+        searchAbort?.abort();
+        searchAbort = null;
+        loading = false;
+        searchProgress = null;
+        results = [];
+        error = '';
+    }
+
     async function runSearch() {
+        searchAbort?.abort();
+        const controller = new AbortController();
+        searchAbort = controller;
         error = '';
         results = [];
         searchProgress = null;
@@ -248,9 +261,11 @@
             }
             if (oneWay) {
                 const opts: OneWaySearchOptions = {
+                    signal: controller.signal,
                     onProgress: (done, total) => { searchProgress = { done, total }; }
                 };
                 const periodResults = await searchCheapestOneWayInPeriod(from, to, periodStart, periodEnd, opts);
+                if (controller.signal.aborted) return;
                 results = orderResultsByAirlinePreference(periodResults.filter(isCheapestResult));
                 if (results.length === 0) error = 'No valid date combinations in this period.';
             } else {
@@ -266,17 +281,23 @@
                     preferWeekends,
                     durationMode,
                     durationVariation,
+                    signal: controller.signal,
                     onProgress: (done, total) => { searchProgress = { done, total }; }
                 };
                 const periodResults = await searchCheapestInPeriod(from, to, periodStart, periodEnd, days, opts);
+                if (controller.signal.aborted) return;
                 results = periodResults.filter(isCheapestResult);
                 if (results.length === 0) error = 'No valid date combinations in this period.';
             }
         } catch (e) {
+            if (controller.signal.aborted || (e instanceof Error && e.name === 'AbortError')) return;
             error = e instanceof Error ? e.message : 'Search failed.';
         } finally {
-            loading = false;
-            searchProgress = null;
+            if (searchAbort === controller) {
+                searchAbort = null;
+                loading = false;
+                searchProgress = null;
+            }
         }
     }
 
@@ -542,6 +563,9 @@
         {:else}
             <p>Searching…</p>
         {/if}
+        <div class="mt-3 flex justify-center">
+            <Button variant="outlined" onclick={cancelSearch}>Stop</Button>
+        </div>
     </div>
 {:else if error}
     <p class="text-center mt-4 text-red-600">{error}</p>
