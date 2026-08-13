@@ -9,7 +9,11 @@ Install: [Latest Release](https://github.com/Cattn/clovis/releases/latest/)
 
 ## Quick Start
 
+> Make sure Cargo/[Rust](https://rust-lang.org/tools/install/) is installed
 ```bash
 bun install
+cd client
+bun install
+cd ..
 bun tauri dev
 ```
