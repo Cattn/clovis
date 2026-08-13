@@ -29,6 +29,7 @@
     "build:client": "cd client && bun run build",
     "start": "NODE_ENV=production bun dist/index.js",
     "test": "bun test",
+    "status": "bun scripts/dev-status.ts",
     "tauri:dev": "bun tauri dev",
     "tauri:build": "bun run build:server && bun tauri build"
   }
