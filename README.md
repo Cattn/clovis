@@ -17,3 +17,8 @@ bun install
 cd ..
 bun tauri dev
 ```
+
+### Status check
+```bash
+bun run status
+```
