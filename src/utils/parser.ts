@@ -124,10 +124,10 @@ export function parseFlightResponse(rawText: string): FlightResult[] {
         }
       }
       
-      const afterMatch = rawText.slice(match.index, match.index + 1500);
+      const afterMatch = rawText.slice(match.index, match.index + 2500);
       const priceTokenMatch = afterMatch.match(/\[\[null,(\d+)\],\\?"([A-Za-z0-9+/_-]+(?:\\{1,2}u003d)*)\\?"\]/);
       const price = priceTokenMatch?.[1] ? parseInt(priceTokenMatch[1]) : 0;
-      const token = priceTokenMatch?.[2]?.replace(/\\{1,2}u003d/g, "=") || "";
+      const token = priceTokenMatch?.[2]?.replace(/\\u003d/gi, "=").replace(/\u003d/g, "=") || "";
       
       const key = `${airlineCode}-${origin}-${dest}-${depHour}:${depMin}-${price}`;
       if (seen.has(key)) continue;
@@ -153,7 +153,11 @@ export function parseFlightResponse(rawText: string): FlightResult[] {
       });
     }
     
-    flights.sort((a, b) => a.price - b.price);
+    flights.sort((a, b) => {
+      if (!a.price) return 1;
+      if (!b.price) return -1;
+      return a.price - b.price;
+    });
     
   } catch (e) {
     console.error("Parse error:", e);

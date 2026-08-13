@@ -1,98 +1,17 @@
 import { Elysia, t } from "elysia";
 import type { FlightResult } from "../../types/flight";
-import { getFlightTokens, RPC_ENDPOINT } from "../../utils/token";
-import { parseFlightResponse } from "../../utils/parser";
 import { formatDate, parseAirportCodes } from "../../utils/format";
-
-const getSignal = () => AbortSignal.timeout(10000);
-
-/**
- * ============================================================
- * tfs -> /booking URL builder (protobuf-ish => base64url)
- * ============================================================
- * This generates a tfs blob that *attempts* to represent a fully selected
- * round-trip itinerary (outbound + inbound).
- *
- * It works reliably for many simple cases (often domestic, single-carrier),
- * but some itineraries require additional opaque state and can still show
- * "itinerary unavailable" on Google's side.
- *
- * We also return a stable searchUrl fallback that always loads.
- */
-
-function base64url(buf: Uint8Array): string {
-  return Buffer.from(buf).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-
-function varint(n: bigint): Uint8Array {
-  const out: number[] = [];
-  while (true) {
-    const b = Number(n & 0x7fn);
-    n >>= 7n;
-    out.push(n ? (b | 0x80) : b);
-    if (!n) break;
-  }
-  return Uint8Array.from(out);
-}
-
-function key(fieldNo: number, wireType: number): Uint8Array {
-  return varint(BigInt((fieldNo << 3) | wireType));
-}
-
-function concat(...parts: Uint8Array[]): Uint8Array {
-  const len = parts.reduce((a, p) => a + p.length, 0);
-  const out = new Uint8Array(len);
-  let off = 0;
-  for (const p of parts) {
-    out.set(p, off);
-    off += p.length;
-  }
-  return out;
-}
-
-function fVarint(fieldNo: number, n: bigint): Uint8Array {
-  return concat(key(fieldNo, 0), varint(n));
-}
-
-function fBytes(fieldNo: number, b: Uint8Array): Uint8Array {
-  return concat(key(fieldNo, 2), varint(BigInt(b.length)), b);
-}
-
-function fStr(fieldNo: number, s: string): Uint8Array {
-  return fBytes(fieldNo, Buffer.from(s, "utf8"));
-}
-
-function loc(code: string): Uint8Array {
-  // {1=1, 2="PBI"}
-  return concat(fVarint(1, 1n), fStr(2, code));
-}
-
-function buildTfuFromOutboundToken(outboundToken: string): string {
-  // Observed structure in Google's URL:
-  // message {
-  //   1: "<outboundToken>"          (string)
-  //   2: { 1: 0 }                   (nested message; small UI flag)
-  //   4: {}                         (empty nested message)
-  // }
-  const msg = concat(
-    fStr(1, outboundToken),
-    fBytes(2, fVarint(1, 0n)),
-    fBytes(4, new Uint8Array())
-  );
-
-  return base64url(msg);
-}
-
-function buildSelectedSearchUrlFromTfs(tfs: string, outboundToken: string): string {
-  const u = new URL("https://www.google.com/travel/flights/search");
-  u.searchParams.set("tfs", tfs);
-  u.searchParams.set("tfu", buildTfuFromOutboundToken(outboundToken));
-  u.searchParams.set("hl", "en-US");
-  u.searchParams.set("gl", "US");
-  u.searchParams.set("curr", "USD");
-  return u.toString();
-}
-
+import { searchFlightsFromUrl } from "../../utils/shopping";
+import {
+  base64url,
+  buildOneWaySearchUrl,
+  buildRoundTripSearchUrl,
+  concat,
+  fBytes,
+  fStr,
+  fVarint,
+  loc,
+} from "../../utils/tfs";
 
 function selectedDetail(origin: string, date: string, dest: string, airline: string, flightNo: string): Uint8Array {
   // {1=origin,2=date,3=dest,5=airline,6=flightNo}
@@ -129,17 +48,6 @@ function leg(params: {
   return concat(...parts);
 }
 
-function legSearch(params: { date: string; origins: string[]; destinations: string[] }): Uint8Array {
-  const parts: Uint8Array[] = [fStr(2, params.date)];
-  for (const origin of params.origins) {
-    parts.push(fBytes(13, loc(origin)));
-  }
-  for (const destination of params.destinations) {
-    parts.push(fBytes(14, loc(destination)));
-  }
-  return concat(...parts);
-}
-
 function buildTfsRoundTripSelected(opts: {
   outbound: { date: string; origin: string; dest: string; airlineCode: string; flightNumber: string };
   inbound: { date: string; origin: string; dest: string; airlineCode: string; flightNumber: string };
@@ -161,31 +69,7 @@ function buildTfsRoundTripSelected(opts: {
   return base64url(msg);
 }
 
-function buildTfsRoundTripSearch(opts: {
-  departDate: string;
-  returnDate: string;
-  fromAirports: string[];
-  toAirports: string[];
-}): string {
-  const maxU64 = (1n << 64n) - 1n;
-
-  const msg = concat(
-    fVarint(1, 28n),
-    fVarint(2, 2n),
-    fBytes(3, legSearch({ date: opts.departDate, origins: opts.fromAirports, destinations: opts.toAirports })),
-    fBytes(3, legSearch({ date: opts.returnDate, origins: opts.toAirports, destinations: opts.fromAirports })),
-    fVarint(8, 1n),
-    fVarint(9, 1n),
-    fVarint(14, 1n),
-    fBytes(16, fVarint(1, maxU64)),
-    fVarint(19, 1n)
-  );
-
-  return base64url(msg);
-}
-
 function normalizeFlightNo(flightNumber: string): string {
-  // "UA1525" -> "1525", "NK3005" -> "3005"
   return (flightNumber || "").replace(/[^0-9]/g, "");
 }
 
@@ -205,141 +89,24 @@ function buildBookingUrlFromTfs(tfs: string): string {
   return u.toString();
 }
 
-function buildSearchUrl(fromAirports: string[], toAirport: string, departDate: string, returnDate: string): string {
-  const tfs = buildTfsRoundTripSearch({
-    departDate,
-    returnDate,
-    fromAirports,
-    toAirports: [toAirport],
-  });
-  const u = new URL("https://www.google.com/travel/flights/search");
-  u.searchParams.set("tfs", tfs);
-  u.searchParams.set("hl", "en-US");
-  u.searchParams.set("gl", "US");
-  u.searchParams.set("curr", "USD");
-  return u.toString();
-}
-
-/* -------------------------- RPC calls (shopping results) -------------------------- */
-
 async function fetchFlights(
-  tokens: { sid: string; bl: string },
   fromAirports: string[],
   to: string,
   departureDate: string,
   returnDateStr: string
 ): Promise<FlightResult[]> {
-  const url = new URL(RPC_ENDPOINT);
-  url.searchParams.set("f.sid", tokens.sid);
-  url.searchParams.set("bl", tokens.bl);
-  url.searchParams.set("hl", "en-US");
-  url.searchParams.set("soc-app", "162");
-  url.searchParams.set("soc-platform", "1");
-  url.searchParams.set("soc-device", "1");
-  url.searchParams.set("_reqid", String(Math.floor(Math.random() * 900000) + 100000));
-  url.searchParams.set("rt", "c");
-
-  const fromPayload = [fromAirports.map((code) => [code, 0])];
-  const toPayload = [[[to, 0]]];
-
-  const innerPayload = [
-    [],
-    [
-      null, null, 1, null, [], 1, [1, 0, 0, 0], null, null, null, null, null, null,
-      [
-        [fromPayload, toPayload, null, 0, null, null, departureDate, null, null, null, null, null, null, null, 3],
-        [toPayload, fromPayload, null, 0, null, null, returnDateStr, null, null, null, null, null, null, null, 3]
-      ],
-      null, null, null, 1
-    ],
-    0, 0, 0, 1
-  ];
-
-  const fReqPayload = JSON.stringify([null, JSON.stringify(innerPayload)]);
-  const body = new URLSearchParams();
-  body.append("f.req", fReqPayload);
-
-  const response = await fetch(url.toString(), {
-    method: "POST",
-    signal: getSignal(),
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36",
-      "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-      "Origin": "https://www.google.com",
-      "Referer": "https://www.google.com/travel/flights",
-      "x-same-domain": "1",
-      "x-goog-ext-259736195-jspb": '["en-US","US","USD",2,null,[300],null,null,7,[]]',
-    },
-    body,
-  });
-
-  if (!response.ok) throw new Error(`Search failed: ${response.statusText}`);
-
-  const text = await response.text();
-  const cleanJson = text.replace(/^\)\]\}'\s*/, "");
-  return parseFlightResponse(cleanJson);
+  const url = buildRoundTripSearchUrl(fromAirports, to, departureDate, returnDateStr);
+  return searchFlightsFromUrl(url, fromAirports, to, departureDate);
 }
 
 async function fetchReturnFlights(
-  tokens: { sid: string; bl: string },
-  outboundToken: string,
   origin: string,
   destination: string,
   returnDate: string
 ): Promise<FlightResult[]> {
-  const url = new URL(RPC_ENDPOINT);
-  url.searchParams.set("f.sid", tokens.sid);
-  url.searchParams.set("bl", tokens.bl);
-  url.searchParams.set("hl", "en-US");
-  url.searchParams.set("soc-app", "162");
-  url.searchParams.set("soc-platform", "1");
-  url.searchParams.set("soc-device", "1");
-  url.searchParams.set("_reqid", String(Math.floor(Math.random() * 900000) + 100000));
-  url.searchParams.set("rt", "c");
-
-  const innerPayload = [
-    [null, outboundToken],
-    [null, null, 1, null, [], 1, [1, 0, 0, 0], null, null, null, null, null, null,
-      [
-        [
-          [[[origin, 0]]],
-          [[[destination, 0]]],
-          null, 0, null, null, returnDate
-        ]
-      ],
-      null, null, null, 1
-    ],
-    0, 0, 0, 2
-  ];
-
-  const fReqPayload = JSON.stringify([null, JSON.stringify(innerPayload)]);
-  const body = new URLSearchParams();
-  body.append("f.req", fReqPayload);
-
-  const response = await fetch(url.toString(), {
-    method: "POST",
-    signal: getSignal(),
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36",
-      "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-      "Origin": "https://www.google.com",
-      "Referer": "https://www.google.com/travel/flights",
-      "x-same-domain": "1",
-      "x-goog-ext-259736195-jspb": '["en-US","US","USD",2,null,[300],null,null,7,[]]',
-    },
-    body,
-  });
-
-  if (!response.ok) throw new Error(`Return search failed: ${response.statusText}`);
-
-  const text = await response.text();
-  const cleanJson = text.replace(/^\)\]\}'\s*/, "");
-  return parseFlightResponse(cleanJson);
+  const url = buildOneWaySearchUrl([origin], destination, returnDate);
+  return searchFlightsFromUrl(url, [origin], destination, returnDate);
 }
-
-/* -------------------------- Route -------------------------- */
 
 export const cheapestRoutes = new Elysia({ prefix: "/flights" })
   .get(
@@ -361,30 +128,24 @@ export const cheapestRoutes = new Elysia({ prefix: "/flights" })
           return { success: false, error: "Invalid 'to' value. Use a 3-letter airport code." };
         }
 
-        const tokens = await getFlightTokens();
-
         const departureDate = departDate || formatDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
         const returnDateStr = returnDate || formatDate(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000));
 
-        const outboundFlights = await fetchFlights(tokens, fromAirports, toAirport, departureDate, returnDateStr);
+        const outboundFlights = await fetchFlights(fromAirports, toAirport, departureDate, returnDateStr);
         if (outboundFlights.length === 0) return { success: false, error: "No outbound flights found" };
 
         const cheapestOutbound = outboundFlights[0]!;
-        if (!cheapestOutbound.token) {
-          return { success: false, error: "No booking token found for cheapest outbound flight" };
-        }
 
-        const returnFlights = await fetchReturnFlights(tokens, cheapestOutbound.token, toAirport, cheapestOutbound.origin, returnDateStr);
+        const returnFlights = await fetchReturnFlights(toAirport, cheapestOutbound.origin, returnDateStr);
         if (returnFlights.length === 0) return { success: false, error: "No return flights found" };
 
-        const cheapestReturn = returnFlights[0]!;
+        const sameAirline = returnFlights.filter((f) => f.airlineCode === cheapestOutbound.airlineCode);
+        const cheapestReturn = (sameAirline[0] ?? returnFlights[0])!;
         const totalPrice = cheapestOutbound.price;
 
-        // Always produce links (non-null)
         const outSel = pickAirlineAndFlightNumber(cheapestOutbound);
         const inSel = pickAirlineAndFlightNumber(cheapestReturn);
 
-        // If flight number is missing for some reason, still return searchUrl
         let bookingUrl: string | null = null;
         if (outSel.airlineCode && outSel.flightNo && inSel.airlineCode && inSel.flightNo) {
           const tfs = buildTfsRoundTripSelected({
@@ -406,7 +167,7 @@ export const cheapestRoutes = new Elysia({ prefix: "/flights" })
           bookingUrl = buildBookingUrlFromTfs(tfs);
         }
 
-        const searchUrl = buildSearchUrl(fromAirports, toAirport, departureDate, returnDateStr);
+        const searchUrl = buildRoundTripSearchUrl(fromAirports, toAirport, departureDate, returnDateStr);
 
         return {
           success: true,
