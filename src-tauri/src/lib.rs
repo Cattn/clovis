@@ -1,5 +1,5 @@
 #[cfg(not(debug_assertions))]
-use std::{process::{Child, Command}, sync::Mutex};
+use std::{process::{Child, Command, Stdio}, sync::Mutex};
 #[cfg(all(not(debug_assertions), target_os = "windows"))]
 use std::os::windows::process::CommandExt;
 use std::{fs, io::ErrorKind};
@@ -38,14 +38,18 @@ pub fn run(port: u16) {
   let app = tauri::Builder::default()
     .plugin(tauri_plugin_opener::init())
     .invoke_handler(tauri::generate_handler![load_preferences, save_preferences])
-    .on_page_load({
-      let backend_url = backend_url.clone();
-      move |window, _| {
-        let script = format!("window.__CLOVIS_API_BASE__ = '{}';", backend_url);
-        let _ = window.eval(&script);
-      }
-    })
     .setup(move |app| {
+      // Must be an initialization script, not an on_page_load eval: the frontend reads
+      // this while its bundle is evaluating, which an on_page_load eval can lose the
+      // race against, leaving the app pointed at its own origin instead of the backend.
+      tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::default())
+        .title("Clovis Flights")
+        .inner_size(800.0, 600.0)
+        .resizable(true)
+        .maximized(true)
+        .initialization_script(format!("window.__CLOVIS_API_BASE__ = '{}';", backend_url))
+        .build()?;
+
       #[cfg(debug_assertions)]
       {
         app.handle().plugin(
@@ -72,10 +76,25 @@ pub fn run(port: u16) {
           std::fs::set_permissions(&node_bin, perms)?;
         }
 
+        // Launched from Explorer there is no console, so inherited stdio handles are
+        // invalid and the backend dies on its first write. Give it real ones, and keep
+        // the output as a log so a dead backend is diagnosable instead of silent.
+        let app_data_dir = app.path().app_data_dir()?;
+        fs::create_dir_all(&app_data_dir)?;
+        let log_file = fs::File::create(app_data_dir.join("backend.log"))?;
+        let log_file_err = log_file.try_clone()?;
+
         let mut command = Command::new(&node_bin);
         command
           .arg(&server_script)
-          .env("CLOVIS_BACKEND_PORT", port.to_string());
+          .env("CLOVIS_BACKEND_PORT", port.to_string())
+          // The bundled runtime must not inherit the machine's Node config: a user-set
+          // NODE_OPTIONS (e.g. --use-system-ca) makes it exit before it can serve.
+          .env_remove("NODE_OPTIONS")
+          .env_remove("NODE_PATH")
+          .stdin(Stdio::null())
+          .stdout(Stdio::from(log_file))
+          .stderr(Stdio::from(log_file_err));
         #[cfg(target_os = "windows")]
         command.creation_flags(CREATE_NO_WINDOW);
         let child = command.spawn()?;
