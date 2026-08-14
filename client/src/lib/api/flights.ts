@@ -4,12 +4,31 @@ declare global {
 	}
 }
 
-const API_BASE =
-	typeof window !== 'undefined' && typeof window.__CLOVIS_API_BASE__ === 'string'
-		? window.__CLOVIS_API_BASE__
-		: typeof window !== 'undefined' && /^https?:/.test(window.location.origin)
-			? window.location.origin
-			: 'http://localhost:3000';
+const DEV_API_BASE = 'http://localhost:3000';
+
+// The packaged app serves the UI from tauri.localhost while the backend listens on a
+// random port, so the webview origin is never a usable API base there. Resolved lazily:
+// reading it at module scope races the port injection from Rust.
+function apiBase(): string {
+	if (typeof window === 'undefined') return DEV_API_BASE;
+
+	const injected = window.__CLOVIS_API_BASE__;
+	if (typeof injected === 'string') return injected;
+
+	if (import.meta.env.DEV) return DEV_API_BASE;
+
+	const origin = window.location.origin;
+	if (/^tauri:/.test(origin) || /^https?:\/\/tauri\.localhost$/.test(origin)) {
+		throw new Error(
+			'Clovis could not reach its backend: the API port was never injected into the window.'
+		);
+	}
+
+	// Served by the API process itself (staticPlugin), where same-origin is correct.
+	if (/^https?:/.test(origin)) return origin;
+
+	return DEV_API_BASE;
+}
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const DEFAULT_SEARCH_CONCURRENCY = 3;
@@ -173,7 +192,7 @@ export async function fetchCheapest(
 		returnDate
 	});
 	try {
-		const res = await fetch(`${API_BASE}/flights/cheapest?${params}`, { signal });
+		const res = await fetch(`${apiBase()}/flights/cheapest?${params}`, { signal });
 		const json = await res.json();
 		if (!res.ok) return { success: false, error: json?.error ?? res.statusText };
 		return json;
@@ -195,7 +214,7 @@ export async function fetchCheapestOneWay(
 		departDate
 	});
 	try {
-		const res = await fetch(`${API_BASE}/flights/cheapest/oneWay?${params}`, { signal });
+		const res = await fetch(`${apiBase()}/flights/cheapest/oneWay?${params}`, { signal });
 		const json = await res.json();
 		if (!res.ok) return { success: false, error: json?.error ?? res.statusText };
 		return json;
